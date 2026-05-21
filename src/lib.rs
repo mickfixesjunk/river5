@@ -177,7 +177,8 @@ mod tests {
         // lacks AES-NI or CPUID dispatch is broken.
         let name = impl_name();
         assert!(
-            name == "river5-aesni-v6"
+            name == "river5-aesni-v15"
+                || name == "river5-aesni-v6"
                 || name == "river5-aesni-v3"
                 || name == "river5-aesni-v2"
                 || name == "river5-aesni-v1"

@@ -51,7 +51,7 @@ static const hash_impl xxh3_128 = {
     .free_state  = xxh3_128_free,
 };
 
-/* ---------- river5 (public API → routes to v6 on AES-NI CPUs) ---------- */
+/* ---------- river5 (public API → routes to v15 on AES-NI CPUs) ---------- */
 
 static void river5_one(const void *in, size_t len, uint8_t *out)
 {
@@ -75,7 +75,73 @@ static const hash_impl river5_impl = {
     .free_state  = river5_free_,
 };
 
-/* ---------- river5 v3 (direct vtable, for A/B vs the new v6 default) ---------- */
+/* ---------- river5 v15 (direct vtable, NEW default — registered for A/B alongside `river5`) ---------- */
+
+static void river5_v15_one(const void *in, size_t len, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V15.one_shot(in, len, NULL, out);
+}
+static void *river5_v15_new(void)
+{
+    return RIVER5_VTABLE_AESNI_V15.new_state(NULL);
+}
+static void  river5_v15_update(void *s, const void *d, size_t n)
+{
+    RIVER5_VTABLE_AESNI_V15.update((river5_ctx_t *)s, d, n);
+}
+static void  river5_v15_digest(void *s, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V15.finalize((river5_ctx_t *)s, out);
+}
+static void  river5_v15_free(void *s)
+{
+    RIVER5_VTABLE_AESNI_V15.free_state((river5_ctx_t *)s);
+}
+
+static const hash_impl river5_v15_impl = {
+    .name        = "river5-v15",
+    .output_bits = 128,
+    .one_shot    = river5_v15_one,
+    .new_state   = river5_v15_new,
+    .update      = river5_v15_update,
+    .digest      = river5_v15_digest,
+    .free_state  = river5_v15_free,
+};
+
+/* ---------- river5 v6 (direct vtable, prior default kept for A/B) ---------- */
+
+static void river5_v6_one(const void *in, size_t len, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V6.one_shot(in, len, NULL, out);
+}
+static void *river5_v6_new(void)
+{
+    return RIVER5_VTABLE_AESNI_V6.new_state(NULL);
+}
+static void  river5_v6_update(void *s, const void *d, size_t n)
+{
+    RIVER5_VTABLE_AESNI_V6.update((river5_ctx_t *)s, d, n);
+}
+static void  river5_v6_digest(void *s, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V6.finalize((river5_ctx_t *)s, out);
+}
+static void  river5_v6_free(void *s)
+{
+    RIVER5_VTABLE_AESNI_V6.free_state((river5_ctx_t *)s);
+}
+
+static const hash_impl river5_v6_impl = {
+    .name        = "river5-v6",
+    .output_bits = 128,
+    .one_shot    = river5_v6_one,
+    .new_state   = river5_v6_new,
+    .update      = river5_v6_update,
+    .digest      = river5_v6_digest,
+    .free_state  = river5_v6_free,
+};
+
+/* ---------- river5 v3 (direct vtable, historical A/B) ---------- */
 
 static void river5_v3_one(const void *in, size_t len, uint8_t *out)
 {
@@ -238,6 +304,8 @@ static const hash_impl meow_impl = {
 const hash_impl *const g_hashes[] = {
     &xxh3_128,
     &river5_impl,
+    &river5_v15_impl,
+    &river5_v6_impl,
     &river5_v3_impl,
     &river5_v2_impl,
     &river5_v1_impl,

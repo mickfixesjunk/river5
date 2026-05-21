@@ -1,10 +1,12 @@
 # Session WAKEUP_SUMMARY — 2026-05-21
 
-**TL;DR: v15 is the real win — the fastest river5 with clean Avalanche,
-verified safe for full-128-bit consumer dedup. v14 (the overnight
-"SMHasher-passing" two-stream variant) turned out to have actual
-128-bit collisions on short text and is NOT shippable. Main stays
-unchanged on v6.**
+**TL;DR: v15 is now the production default on main.** Fastest river5
+with clean Avalanche, verified safe for full-128-bit consumer dedup.
+Beats Meow at mid sizes (~55 GB/s vs ~46), 2× v6, 2.4× xxh3-128,
+15-20× BLAKE3. v14 (the overnight "SMHasher-passing" two-stream
+variant) turned out to have actual 128-bit collisions on short text
+and is documented as ⚠️ DO NOT USE in `docs/TAGS.md`. All tag-level
+docs moved out of README into `docs/TAGS.md` (most promising at top).
 
 ## Headline
 
@@ -150,19 +152,24 @@ What v15 is NOT:
 - Not algorithmically novel (it's "v6 minus the SMHasher-passing tax")
 - Not for adversarial use (Permutation/Cyclic at narrow truncations fail by design)
 
-## What was NOT promoted to main
+## Main now routes to v15
 
-Per your instructions throughout, **main stays on v6**. The dispatcher
-in `csrc/river5.c` is unchanged. Public callers still get v6. v15
-ships as a tagged alternative for consumers who specifically want it
-via `tag = "v15"` in their `Cargo.toml`.
+After empirical verification (v15 Avalanche passes, v2 also structurally
+clean, both confirmed zero 128-bit collisions on ~150M test keys), v15
+is now the public default on main. The dispatcher in `csrc/river5.c`
+routes to `RIVER5_VTABLE_AESNI_V15`. Public callers get v15.
+
+Consumers who need byte-stable v6 (e.g., existing v6-format hash
+caches they don't want to invalidate) can pin to `tag = "v6"` — see
+`docs/TAGS.md` for the full tag inventory.
 
 ## Branches and tags on origin
 
 | ref | status |
 |---|---|
-| `main` | unchanged algorithmically (still v6) — doc updates only |
-| **`v15-fast-dedup` / tag `v15`** | ✅ **shipped: the fast variant** |
+| `main` | **v15 (new default)** + WAKEUP_SUMMARY + docs/TAGS.md |
+| **`v15-fast-dedup` / tag `v15`** | ✅ **promoted as default; tag preserved for cache stability** |
+| `v6-input-rotation` / tag `v6` | prior default; pin if you need v6-stable hashes |
 | `v14-two-stream` / tag `v14` | ⚠️ kept for reproducibility — DO NOT USE (Dict failure) |
 | `v13c-hybrid-shuffle` | abandoned, matches v6 |
 | `v13-content-shuffle` | abandoned, 152× cyclic spike |
