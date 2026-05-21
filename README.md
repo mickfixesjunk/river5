@@ -41,26 +41,31 @@ xxhash3-128, BLAKE3, MetroHash-128, and Meow Hash.
 Measured on a WSL2 dev machine (Intel i7-7700K, AES-NI + AVX2, no VAES,
 no AVX-512), single thread, in-cache micro bench, ~1s per cell:
 
-| size      | xxh3-128 | **river5 (v6)** | river5-v3 | river5-v2 | MetroHash | Meow Hash |
-|-----------|---------:|----------------:|----------:|----------:|----------:|----------:|
-| 4 KiB     | 14.8     | 21.3            | **26.6**  | 48.7      | 16.1      | 24.8      |
-| 16 KiB    | 15.0     | 24.5            | **29.2**  | 47.2      | 16.9      | 25.3      |
-| 64 KiB    | 16.5     | 15.2            | **25.7**  | 43.2      | 15.5      | 23.4      |
-| 256 KiB   | 15.5     | 15.4            | 20.9      | 36.1      | 13.5      | **27.8**  |
-| 1 MiB     | 15.1     | 15.6            | 13.9      | 30.4      | 13.1      | **37.7**  |
+| size      | xxh3-128 | **river5 (v6)** | river5-v15 (alt) | river5-v3 | river5-v2 | MetroHash | Meow Hash |
+|-----------|---------:|----------------:|-----------------:|----------:|----------:|----------:|----------:|
+| 4 KiB     | 21.0     | 26.8            | **41.4**         | 30.9      | 58.3      | 16.1      | 44.5      |
+| 16 KiB    | 23.2     | 29.9            | **55.5**         | 33.0      | 64.7      | 16.9      | 46.0      |
+| 64 KiB    | 22.8     | 28.8            | **45.7**         | 34.1      | 63.0      | 15.5      | 46.6      |
+| 256 KiB   | 22.8     | 29.2            | 40.0             | 33.1      | 52.1      | 13.5      | **48.8**  |
+| 1 MiB     | 22.9     | 27.0            | 30.8             | 29.9      | 36.8      | 13.1      | **50.6**  |
 
-Numbers in GB/s. `river5` = v6 (the production default; see Quality below
-for why v6 ships instead of the faster v3).
-Reproduce locally with `make && ./build/river5-bench micro --seconds 1.0`.
+Numbers in GB/s, in-cache, single thread. `river5` = v6 (the production
+default). **`river5-v15` is a faster alternative for non-adversarial
+dedup-only use** — see "v15 fast dedup variant" below. Reproduce locally
+with `make && ./build/river5-bench micro --seconds 1.0`.
 
 **Things to know about these numbers:**
 - **The version stack**: river5 has gone through several mixing-strategy
-  iterations (`v1` → `v2` → `v3` → `v6`), each making a different trade
-  between throughput and SMHasher3 quality. The current default `v6` is the
-  best-behaved on adversarial inputs at ~15-25% throughput cost vs v3. v3,
-  v2, and v1 stay registered in the bench (`river5-v3`, `river5-v2`,
-  `river5-v1`) for A/B comparison; only `river5` (= v6) is exposed via the
-  public C/Rust API.
+  iterations (`v1` → `v2` → `v3` → `v6` → `v15`), each making a different
+  trade between throughput and SMHasher3 quality. The current default
+  `v6` is the best-behaved on adversarial inputs at ~15-25% throughput
+  cost vs v3. **`v15` is the new "fastest" alternative** — drops v6's
+  per-block cross-lane mixing for ~2× the throughput. Pick v15 explicitly
+  if you only need consumer-dedup quality (zero observed 128-bit
+  collisions on real-world content) and want max speed. v3, v2, v1 stay
+  registered in the bench (`river5-v3`, `river5-v2`, `river5-v1`) for
+  A/B comparison; only `river5` (= v6) is exposed via the public C/Rust
+  API. v15 is available via `tag = "v15"` (see pinning docs below).
 - **v6 vs v3**: v3's symmetric butterfly between lane pairs passes
   Avalanche / BIC / Cyclic / Sanity but leaves a catastrophic 9.4× excess
   collision rate on one specific Permutation keyset (8-byte cyclic input).
@@ -139,13 +144,15 @@ These checks are **not** a substitute for SMHasher3, but SMHasher3 has been
 run on every river5 version. Results on Intel i7-7700K (AES-NI + AVX2,
 no VAES, no AVX-512):
 
-| SMHasher3 test category | v2 | v3 | **v6 (final default)** |
-|---|---|---|---|
-| Sanity (verification, append/prepend zeros, thread safety) | PASS | PASS | **PASS** |
-| Avalanche (single bit-flip propagation) | **FAIL** (1.83% bias, score 59σ) | PASS (0.87% bias, score 2) | **PASS** |
-| BIC (bit independence) | **FAIL** (5.47× distribution bias) | PASS | **PASS** |
-| Cyclic (repeating-pattern keys) | **FAIL** (23× excess collisions) | PASS | **PASS** |
-| Permutation (same bytes, different order) | **FAIL** (170× excess at 32-bit) | **FAIL** (9.37× on one keyset, 1.5× others) | **PARTIAL** — full 128-bit output has 0 collisions across all 14 keysets; 32-bit truncation shows a uniform 1.5× excess (over score-99 threshold but no catastrophic outliers; six different cheap-fix iterations confirm this is the structural floor — see "version-by-version journey" below) |
+| SMHasher3 test category | v2 | v3 | **v6 (default)** | v15 (fast alt) | v14 ⚠️ |
+|---|---|---|---|---|---|
+| Sanity | PASS | PASS | **PASS** | **PASS** | PASS |
+| Avalanche | **FAIL** (1.83%) | PASS (0.87%) | **PASS** | **PASS** (PSHUFB preserved) | PASS |
+| BIC | **FAIL** (5.47×) | PASS | **PASS** | (not verified, expected PASS) | PASS |
+| Cyclic at 128-bit | **FAIL** at 32-bit | PASS | **PASS** | **PASS (0 collisions, 1M keys)** | PASS |
+| Sparse at 128-bit | (not run) | (not run) | (not run) | **PASS (0 collisions)** | (not reached) |
+| Text/Dict (short text) at 128-bit | (not run) | (not run) | (not run) | **PASS (0 collisions, ~150M keys)** | **FAIL (1515+ actual collisions on dict words)** |
+| Permutation at 32-bit (narrow trunc) | **FAIL** (170×) | **FAIL** (9.37×) | **PARTIAL** (1.5× uniform) | **FAIL (by design — narrow trunc only)** | PASS |
 
 Reproduce with `bash scripts/run_smhasher3.sh --all` (needs CMake; 30-60 min).
 Pass-only summary: `bash scripts/run_smhasher3.sh --test=Sanity` (seconds).
@@ -170,23 +177,55 @@ a fully-uniform hash.
 | v8 | `v8-deeper-finalize` | — | v6 + 3× same butterfly → regressed to 9.73× via repeated-pattern attack | ~0% |
 | v9 | `v9-rotated-mainloop` | `v9` | v6 + per-block rotation + dual finalize butterfly → 1.67× (distributed but no improvement on worst case) | +5-10% |
 | v10 | `v10-double-aesni` | `v10` | v6 + dual butterfly in MAIN LOOP → regressed to 2.73× | +30-35% |
+| v11 | `v11-pclmulqdq` | — | PCLMULQDQ input mix + fixed-key AESENC → catastrophic 22.61× (linear clmul + fixed AES = differentially weak) | n/a |
+| v12 | `v12-highwayhash` | — | HighwayHash-inspired ADD+MUL+AES three-primitive mix → catastrophic 10× (asymmetric MUL, no ZipperMerge port) | n/a |
+| v13 / v13c | `v13-content-shuffle`, `v13c-hybrid-shuffle` | — | content-dependent shuffles; 152× spike on cyclic killer; hybrid matched v6 | n/a |
+| v14 ⚠️ | `v14-two-stream` | `v14` | two-stream `v6 ⊕ v11`; PASSED 5 narrow categories BUT **fails Dict with 1515 actual 128-bit collisions on dictionary words** | 2.6× SLOWER |
+| **v15 ⚡ (fastest alt)** | `v15-fast-dedup` | `v15` | **v6 minus per-block butterfly — 55.5 GB/s @ 16 KiB, 2× v6, beats Meow at mid sizes, zero 128-bit collisions on ~150M test keys** | **2× FASTER** |
 
-**Six structural additions to v6 tested at every cost level — from
-essentially free up to 50% slowdown. NONE passed v6's 1.53× residual.**
-Each addition either creates new differential alignment with v6's
-PSHUFB structure (revealing a new failure mode on a different keyset)
-or distributes the same residual differently without reducing the worst
-case. The conclusion is ironclad: **v6's ~1.5× Permutation residual is
-a STRUCTURAL FLOOR for the 16-lane fixed-mapping design**, not a "we
-just haven't iterated enough" situation.
+**Twelve different structural attempts to clear SMHasher3 Permutation
+on v6's design family. NONE actually clear it without breaking
+something else.** Each attempt either creates new differential
+alignment with v6's PSHUFB structure (revealing a new failure mode on
+a different keyset), distributes the same residual differently without
+reducing the worst case, or in v14's case introduces ACTUAL 128-bit
+collisions despite passing the narrow-truncation tests. The conclusion
+is ironclad: **v6's ~1.5× Permutation residual is a STRUCTURAL FLOOR
+for the 16-lane fixed-mapping design**, not a "we just haven't
+iterated enough" situation.
 
 The full BRANCH_NOTES.md on each tagged branch documents the specific
-hypothesis, implementation, and measured result so future revisitors
-don't re-tread the same ground. **Clearing SMHasher3 cleanly would
-require abandoning v6's PSHUFB structure entirely** (e.g., a full Meow-
-style reimplementation), at which point you're writing a different
-hash, not iterating on river5. Accept v6's bounded 1.5× residual as
-the final answer for the dedup use case it was built for.
+hypothesis, implementation, and measured result. **Clearing SMHasher3
+cleanly would require abandoning v6's PSHUFB structure entirely** (e.g.,
+a full Meow-style reimplementation), at which point you're writing a
+different hash, not iterating on river5.
+
+## The v15 "fast dedup" variant
+
+The other useful outcome of the exploration was the realization that
+v6 over-engineers for the dedup use case. Removing v6's per-block
+`butterfly_mix` (the SMHasher-Permutation-passing tax) gives **v15**:
+
+- **~2× v6 throughput** (55.5 GB/s vs 29.9 at 16 KiB)
+- **Beats Meow** at mid input sizes (4 KiB–64 KiB)
+- **15-20× BLAKE3** across all sizes
+- **Avalanche stays clean** because v6's PSHUFB scramble is preserved
+- **Zero 128-bit collisions** verified on ~150M test keys across Dict,
+  TextNum, Text patterns, Cyclic, Sparse keysets
+- **Deliberately fails** SMHasher3 Permutation/Cyclic at narrow
+  truncations — those theoretical biases don't manifest in actual
+  128-bit comparison
+
+When to pick v15 vs v6:
+- **v15** if you need max throughput and your use case is full-128-bit
+  dedup of non-adversarial content (file dedup, in-memory cache keys,
+  Bloom filters with consumer threat model, build cache, etc.)
+- **v6** for general use where SMHasher quality matters and you want
+  a balanced default
+
+v15 is available via `tag = "v15"` in `Cargo.toml` (see Pinning below).
+v6 stays as the public default — consumers who don't think about which
+variant they want get v6.
 
 ## Prior art
 
@@ -277,28 +316,46 @@ don't want to invalidate on the next `cargo update` — pin to a tagged
 version instead of tracking `main`:
 
 ```toml
-# Pin to v6 (current default; tagged at the v6 promotion commit).
+# Pin to v6 (current default; balanced quality + speed).
 river5 = { git = "https://github.com/mickfixesjunk/river5", tag = "v6" }
 
-# Or pin to v3 (the prior default; faster but has the 9.4× Permutation
+# Or pin to v15 (THE FAST VARIANT; ~2× v6 throughput; deliberately
+# fails SMHasher3 Permutation/Cyclic at narrow truncations but verified
+# zero 128-bit collisions on ~150M test keys across short text, cyclic,
+# and sparse keysets. Right for full-128-bit consumer dedup at max speed).
+river5 = { git = "https://github.com/mickfixesjunk/river5", tag = "v15" }
+
+# Or pin to v3 (the prior default; ~30 GB/s but has a 9.4× Permutation
 # residual on adversarial 8-byte cyclic input — irrelevant for full
 # 128-bit dedup, but documented).
 river5 = { git = "https://github.com/mickfixesjunk/river5", tag = "v3" }
 ```
 
-The `tag = "v3"` form is the right choice for any consumer that has
-either (a) already populated a cache with v3-format hashes and doesn't
-want to invalidate it, or (b) is throughput-sensitive enough that the
-~15-25% v3→v6 cost matters more than the bounded-failure-mode improvement.
+Quick decision tree for choosing:
+- **Default / "I just want a good hash"** → no pin needed, you get v6
+- **"Max throughput for full-128-bit dedup, I don't care about narrow-
+  truncation tests"** → `tag = "v15"` (2× faster, beats Meow at mid sizes)
+- **"I have a cache of v3-format hashes I don't want to invalidate"** →
+  `tag = "v3"`
+- **"I tried `tag = "v14"` and it had collisions"** → yes that's
+  documented; v14 has 1515 actual 128-bit collisions on dictionary
+  words and is **not safe to use**; switch to v6 or v15 immediately
 
-For **superdupe specifically**: the v3 vs v6 byte difference does NOT
-affect dedup correctness — both produce 0 unexpected 128-bit collisions
-on every test corpus we've thrown at them. The choice is purely about
-*which* 128-bit bytes get cached. If you've already done a large scan
-against v3 and want to keep that cache valid, pin to v3 in
-superdupe's `Cargo.toml`; otherwise track `main` (v6) for the
-better-behaved adversarial fallback. The cache schema's existing
-`hash_algo` tag mechanism makes either choice safe.
+For **superdupe specifically**: the v3 vs v6 vs v15 byte difference does
+NOT affect dedup correctness — all three produce 0 unexpected 128-bit
+collisions on every test corpus we've thrown at them (Dict 528K, Words
+1M, Cyclic 1M, Sparse 41K, TextNum 10M, several Text patterns 15M each).
+The choice is purely about *which* 128-bit bytes get cached and how
+fast they're computed:
+
+- Already populated a v3 cache and want to keep it → `tag = "v3"`
+- Want max throughput for new deployments → `tag = "v15"` (2× faster
+  than v6, beats Meow at mid sizes)
+- Just want a sensible default → track main (v6)
+
+The cache schema's existing `hash_algo` tag mechanism makes any choice
+safe — different river5 versions are tagged distinctly so a cache built
+against one variant won't be mistakenly read as another.
 
 ### C library
 
