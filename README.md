@@ -253,8 +253,39 @@ let digest = river5::hash(b"some bytes");
 ```
 
 API mirrors `blake3::Hasher`. `Send + Sync` for use inside rayon. The
-implementation behind the curtain may change (v2 today, v3 later); the API
-is the contract.
+implementation behind the curtain may change (v2 → v3 → v6 historically);
+the API is the contract.
+
+#### Pinning to a specific algorithm version
+
+If you need the hash bytes to stay stable across river5 updates — for
+example, because you have a persistent cache of hash values that you
+don't want to invalidate on the next `cargo update` — pin to a tagged
+version instead of tracking `main`:
+
+```toml
+# Pin to v6 (current default; tagged at the v6 promotion commit).
+river5 = { git = "https://github.com/mickfixesjunk/river5", tag = "v6" }
+
+# Or pin to v3 (the prior default; faster but has the 9.4× Permutation
+# residual on adversarial 8-byte cyclic input — irrelevant for full
+# 128-bit dedup, but documented).
+river5 = { git = "https://github.com/mickfixesjunk/river5", tag = "v3" }
+```
+
+The `tag = "v3"` form is the right choice for any consumer that has
+either (a) already populated a cache with v3-format hashes and doesn't
+want to invalidate it, or (b) is throughput-sensitive enough that the
+~15-25% v3→v6 cost matters more than the bounded-failure-mode improvement.
+
+For **superdupe specifically**: the v3 vs v6 byte difference does NOT
+affect dedup correctness — both produce 0 unexpected 128-bit collisions
+on every test corpus we've thrown at them. The choice is purely about
+*which* 128-bit bytes get cached. If you've already done a large scan
+against v3 and want to keep that cache valid, pin to v3 in
+superdupe's `Cargo.toml`; otherwise track `main` (v6) for the
+better-behaved adversarial fallback. The cache schema's existing
+`hash_algo` tag mechanism makes either choice safe.
 
 ### C library
 
