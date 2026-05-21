@@ -13,6 +13,7 @@ fn main() {
         .file(root.join("csrc").join("river5_aesni_v2.c"))
         .file(root.join("csrc").join("river5_aesni_v3.c"))
         .file(root.join("csrc").join("river5_aesni_v6.c"))
+        .file(root.join("csrc").join("river5_aesni_v10.c"))
         .file(root.join("third_party").join("xxhash").join("xxhash.c"))
         .include(root.join("include"))
         .include(root.join("csrc"))
@@ -37,6 +38,7 @@ fn main() {
         "csrc/river5_aesni_v2.c",
         "csrc/river5_aesni_v3.c",
         "csrc/river5_aesni_v6.c",
+        "csrc/river5_aesni_v10.c",
         "csrc/river5_internal.h",
         "include/river5.h",
         "third_party/xxhash/xxhash.c",

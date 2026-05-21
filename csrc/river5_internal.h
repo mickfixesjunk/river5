@@ -42,6 +42,7 @@ extern const river5_vtable RIVER5_VTABLE_AESNI;     /* v1: 8 lanes, 128 B blocks
 extern const river5_vtable RIVER5_VTABLE_AESNI_V2;  /* v2: 16 lanes, no per-block diffusion (FAILS SMHasher3) */
 extern const river5_vtable RIVER5_VTABLE_AESNI_V3;  /* v3: 16 lanes + per-block butterfly + pre-diffusion finalize */
 extern const river5_vtable RIVER5_VTABLE_AESNI_V6;  /* v6: v3 + per-lane PSHUFB input scramble — current default. Eliminates v3's 9x Permutation spike. */
+extern const river5_vtable RIVER5_VTABLE_AESNI_V10; /* v10: v6 + dual butterfly per block (d8 + d4) — heavy fix, ~33% slower than v6 */
 extern const river5_vtable RIVER5_VTABLE_STUB;      /* xxhash3 fallback */
 
 #endif
