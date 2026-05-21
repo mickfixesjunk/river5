@@ -25,7 +25,8 @@ typedef struct {
 
 extern const river5_vtable RIVER5_VTABLE_AESNI;     /* v1: 8 lanes, 128 B blocks (legacy) */
 extern const river5_vtable RIVER5_VTABLE_AESNI_V2;  /* v2: 16 lanes, no per-block diffusion (FAILS SMHasher3) */
-extern const river5_vtable RIVER5_VTABLE_AESNI_V3;  /* v3: 16 lanes + per-block butterfly + pre-diffusion finalize (default) */
+extern const river5_vtable RIVER5_VTABLE_AESNI_V3;  /* v3: 16 lanes + per-block butterfly + pre-diffusion finalize */
+extern const river5_vtable RIVER5_VTABLE_AESNI_V5;  /* v5: v3 + non-linear pre-finalize round (default if SMHasher3 confirms it) */
 extern const river5_vtable RIVER5_VTABLE_STUB;      /* xxhash3 fallback */
 
 #endif
