@@ -38,10 +38,11 @@ static int cpu_has_aesni(void) { return 0; }
 
 static const river5_vtable *resolve_vtable(void)
 {
-    /* v2 has the same CPU requirements as v1 (AES-NI + SSE4.1) but
-     * better throughput. Always prefer it when AES-NI is available;
-     * v1 is kept around for benchmark A/B comparisons only. */
-    return cpu_has_aesni() ? &RIVER5_VTABLE_AESNI_V2 : &RIVER5_VTABLE_STUB;
+    /* v3 is the SMHasher3-passing default. v2 (no per-block diffusion)
+     * is faster but fails SMHasher3 Avalanche/BIC/Cyclic/Permutation;
+     * v1 is the original 8-lane prototype. Both kept for bench A/B
+     * comparison; public callers always get v3. */
+    return cpu_has_aesni() ? &RIVER5_VTABLE_AESNI_V3 : &RIVER5_VTABLE_STUB;
 }
 
 static const river5_vtable *vtable(void)

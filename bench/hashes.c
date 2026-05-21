@@ -114,6 +114,39 @@ static const hash_impl river5_v1_impl = {
     .free_state  = river5_v1_free,
 };
 
+/* ---------- river5 v2 (direct vtable, FAILS SMHasher3, for A/B perf) ---------- */
+
+static void river5_v2_one(const void *in, size_t len, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V2.one_shot(in, len, NULL, out);
+}
+static void *river5_v2_new(void)
+{
+    return RIVER5_VTABLE_AESNI_V2.new_state(NULL);
+}
+static void  river5_v2_update(void *s, const void *d, size_t n)
+{
+    RIVER5_VTABLE_AESNI_V2.update((river5_ctx_t *)s, d, n);
+}
+static void  river5_v2_digest(void *s, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V2.finalize((river5_ctx_t *)s, out);
+}
+static void  river5_v2_free(void *s)
+{
+    RIVER5_VTABLE_AESNI_V2.free_state((river5_ctx_t *)s);
+}
+
+static const hash_impl river5_v2_impl = {
+    .name        = "river5-v2",
+    .output_bits = 128,
+    .one_shot    = river5_v2_one,
+    .new_state   = river5_v2_new,
+    .update      = river5_v2_update,
+    .digest      = river5_v2_digest,
+    .free_state  = river5_v2_free,
+};
+
 /* ---------- BLAKE3 (256-bit output) ---------- */
 
 extern void  blake3_wrap_one_shot(const void *in, size_t len, uint8_t out[32]);
@@ -178,6 +211,7 @@ static const hash_impl meow_impl = {
 const hash_impl *const g_hashes[] = {
     &xxh3_128,
     &river5_impl,
+    &river5_v2_impl,
     &river5_v1_impl,
     &blake3_impl,
     &metrohash_impl,

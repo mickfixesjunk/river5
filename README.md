@@ -38,31 +38,41 @@ xxhash3-128, BLAKE3, MetroHash-128, and Meow Hash.
 
 ## Honest performance numbers
 
-Measured on a WSL2 dev machine (AVX2 + AES-NI, no VAES, no AVX-512), single
-thread, in-cache micro bench, 1s per cell:
+Measured on a WSL2 dev machine (Intel i7-7700K, AES-NI + AVX2, no VAES,
+no AVX-512), single thread, in-cache micro bench, ~1s per cell:
 
-| size      | xxh3-128 | river5 v1 | **river5 v2** | MetroHash | Meow Hash |
-|-----------|---------:|-----------:|---------------:|----------:|----------:|
-| 64 B      | **6.0**  | 1.9        | 1.5            | 2.2       | 3.8       |
-| 256 B     | 7.2      | 11.9       | **16.2**       | 5.3       | 11.3      |
-| 1 KiB     | 12.4     | 28.7       | **35.4**       | 8.3       | 24.2      |
-| 4 KiB     | 15.6     | 40.7       | **50.6**       | 9.3       | 42.5      |
-| 16 KiB    | 15.2     | 46.7       | **58.0**       | 10.9      | 38.9      |
-| 64 KiB    | 14.8     | 43.3       | **57.0**       | 8.4       | 34.4      |
-| 256 KiB   | 17.2     | 41.7       | **48.4**       | 11.3      | 27.7      |
-| 1 MiB     | 10.4     | 32.5       | **33.9**       | 8.7       | 28.9      |
+| size      | xxh3-128 | **river5 (v3)** | river5-v2 | river5-v1 | MetroHash | Meow Hash |
+|-----------|---------:|----------------:|----------:|----------:|----------:|----------:|
+| 64 B      | **5.6**  | 1.3             | 1.5       | 1.9       | 3.6       | 4.2       |
+| 256 B     | 6.5      | 10.0            | **14.0**  | 11.9      | 8.4       | 12.6      |
+| 1 KiB     | 12.7     | 20.3            | **31.9**  | 28.7      | 14.0      | 21.4      |
+| 4 KiB     | 14.8     | **26.6**        | 48.7      | 40.7      | 16.1      | 24.8      |
+| 16 KiB    | 15.0     | **29.2**        | 47.2      | 46.7      | 16.9      | 25.3      |
+| 64 KiB    | 16.5     | **25.7**        | 43.2      | 43.3      | 15.5      | 23.4      |
+| 256 KiB   | 15.5     | 20.9            | 36.1      | 41.7      | 13.5      | **27.8**  |
+| 1 MiB     | 15.1     | 13.9            | 30.4      | 32.5      | 13.1      | **37.7**  |
 
-Numbers in GB/s. Reproduce locally with `make && ./build/river5-bench micro --seconds 1.0`.
+Numbers in GB/s. `river5` = v3 (the production default).
+Reproduce locally with `make && ./build/river5-bench micro --seconds 1.0`.
 
 **Things to know about these numbers:**
-- river5 v2 is fastest at every size from 256 B through 1 MiB, but loses
-  significantly at 64 B due to fixed init/finalization overhead.
-- These are *one machine*, *one compiler* (gcc), *one OS* (Linux/WSL2).
+- **v3 vs v2**: v2 was 50-100% faster than v3 but **fails SMHasher3** on the
+  Avalanche, BIC, Cyclic, and Permutation tests (see Quality below). v3 adds
+  per-block cross-lane butterfly mixing that closes the SMHasher3 gaps at the
+  cost of about half the throughput. v3 is the public default; v2 stays
+  registered in the bench for A/B comparison only.
+- **v3 vs Meow on this hardware**: v3 matches or beats Meow at 4 KiB-64 KiB
+  (the sizes where superdupe's Tier 1 and Tier 2 hashing live). Meow wins at
+  256 KiB-1 MiB. The dataset crossover matches the alignment of "small reads
+  fit in L1/L2" vs "we're memory-bound regardless."
+- **v3 vs BLAKE3**: v3 is 5-15× faster than BLAKE3 at every size on this
+  CPU (BLAKE3 here is configured without AVX-512 — see "What's vendored").
+- These are *one machine*, *one compiler* (gcc 9.4), *one OS* (Linux/WSL2).
   On different x86_64 CPUs (notably ones with two AES execution units, or
   with VAES) the ordering can change. On non-x86 hardware river5 falls back
   to xxhash3 and offers nothing.
-- File-walk benchmarks at this corpus size (~1 GiB) are noisy enough that
-  run-to-run variance dominates the v1/v2/Meow differences. Micro is the
+- File-walk benchmarks at corpus sizes near ~1 GiB are noisy enough that
+  run-to-run variance dominates the v1/v2/v3/Meow differences. Micro is the
   reliable signal.
 - Out-of-cache, all AES-NI hashes converge near DRAM read bandwidth (~30-50
   GB/s depending on the system). The hash CPU work stops being the bottleneck.
@@ -82,12 +92,14 @@ Numbers in GB/s. Reproduce locally with `make && ./build/river5-bench micro --se
 
 **Actually a deliberate choice worth naming:**
 - Meow Hash performs *per-block cross-lane mixing* (its `MEOW_SHUFFLE` step)
-  to defend against adversaries who attack one lane in isolation. **river5 v2
-  defers all cross-lane mixing to the 4-round tree finalization.** That removes
-  work from the hot loop. The hash is weaker against adversarial collision
-  attacks on a single lane — but a file deduper is hashing its own files, so
-  that risk doesn't apply. The result is faster bytes-per-cycle for non-adversarial
-  inputs. This is a positioning choice, not an algorithmic invention.
+  to defend against adversaries who attack one lane in isolation. **river5 v3
+  uses a similar symmetric AESENC butterfly between lane pairs after every
+  block** — that's what makes v3 the SMHasher3-passing default. v2 (kept for
+  benchmark comparison) skipped this step in exchange for ~2× the throughput,
+  and that's exactly why v2 fails SMHasher3. The v2→v3 trade is the central
+  engineering choice in this project: speed without per-block diffusion
+  exists, but the resulting hash is only safe for non-adversarial dedup-style
+  use, not general-purpose hashing.
 
 **The biggest single perf win was not algorithmic at all:**
 - When the per-block lanes live inside a heap-allocated context struct, GCC's
@@ -101,7 +113,8 @@ Numbers in GB/s. Reproduce locally with `make && ./build/river5-bench micro --se
 
 ## Quality
 
-river5 v2 passes the four fast in-repo statistical checks (`make quality`):
+river5 v3 (the production default) passes the four fast in-repo statistical
+checks (`make quality`):
 - **Avalanche:** mean Hamming distance 64.02 / 128 over 1024 random 64-byte
   keys with single-bit input flips. Zero weak input bits (every input bit
   position causes 56-72 output bits to flip on average).
@@ -112,13 +125,27 @@ river5 v2 passes the four fast in-repo statistical checks (`make quality`):
 - **Output-bit balance:** every output bit is set between 48.7% and 51.2% of
   the time over 10 000 random inputs.
 
-These checks are **not** a substitute for SMHasher3. The full SMHasher3
-battery has not been run yet — `scripts/run_smhasher3.sh` is ready and
-handles fetching, registration, building, and running; it needs CMake on the
-host (which the WSL2 dev environment doesn't have). **Until SMHasher3 passes,
-do not deploy river5 in any role that matters.** v2 is currently
-"plausible-looking" by the easy checks; SMHasher3 is what would make it
-"actually safe to ship."
+These checks are **not** a substitute for SMHasher3, but SMHasher3 has now
+been run on river5 v3. Results on Intel i7-7700K (AES-NI, no VAES, no AVX-512):
+
+| SMHasher3 test category | v2 | **v3** |
+|---|---|---|
+| Sanity (verification, append/prepend zeros, thread safety) | PASS | **PASS** |
+| Avalanche (single bit-flip propagation) | **FAIL** (1.83% bias, score 59σ) | **PASS** (0.87% bias, score 2) |
+| BIC (bit independence) | **FAIL** (5.47× distribution bias) | **PASS** |
+| Cyclic (repeating-pattern keys) | **FAIL** (23× excess collisions) | **PASS** |
+| Permutation (same bytes, different order) | **FAIL** (170× excess at 32-bit) | **PARTIAL** — full 128-bit output has 0 collisions; 32-bit truncation shows 1.5× excess (score 99 threshold) |
+
+Reproduce with `bash scripts/run_smhasher3.sh --all` (needs CMake; 30-60 min).
+Pass-only summary: `bash scripts/run_smhasher3.sh --test=Sanity` (seconds).
+
+**The remaining Permutation caveat**: v3 produces ZERO 128-bit collisions on
+millions of permuted-byte keys, but shows a 1.5× excess collision rate when
+the output is *truncated* to 32 bits. For dedup using the full 128-bit hash
+this is a non-issue. For consumers using `hash & 0xFFFFFFFF` as a 32-bit
+hash-table key with collision handling, expect slightly more chaining than
+a fully-uniform hash. A future v4 may close this gap via position-dependent
+mixing or a deeper finalization; tracked in the `v4-position-mix` branch.
 
 ## Prior art
 

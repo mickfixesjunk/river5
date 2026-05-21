@@ -53,11 +53,12 @@ fi
 # --- 2. Copy river5 sources ---
 echo "[2/6] copying river5 sources into $SMH_DIR/hashes/river5/"
 mkdir -p "$SMH_DIR/hashes/river5"
-cp "$ROOT/csrc/river5.c"          "$SMH_DIR/hashes/river5/"
-cp "$ROOT/csrc/river5_aesni.c"    "$SMH_DIR/hashes/river5/"
-cp "$ROOT/csrc/river5_stub.c"     "$SMH_DIR/hashes/river5/"
-cp "$ROOT/csrc/river5_internal.h" "$SMH_DIR/hashes/river5/"
-cp "$ROOT/include/river5.h"       "$SMH_DIR/hashes/river5/"
+cp "$ROOT/csrc/river5.c"             "$SMH_DIR/hashes/river5/"
+cp "$ROOT/csrc/river5_aesni.c"       "$SMH_DIR/hashes/river5/"
+cp "$ROOT/csrc/river5_aesni_v2.c"    "$SMH_DIR/hashes/river5/"
+cp "$ROOT/csrc/river5_stub.c"        "$SMH_DIR/hashes/river5/"
+cp "$ROOT/csrc/river5_internal.h"    "$SMH_DIR/hashes/river5/"
+cp "$ROOT/include/river5.h"          "$SMH_DIR/hashes/river5/"
 cp "$ROOT/third_party/xxhash/xxhash.c" "$SMH_DIR/hashes/river5/"
 cp "$ROOT/third_party/xxhash/xxhash.h" "$SMH_DIR/hashes/river5/"
 
@@ -115,17 +116,19 @@ REGISTER_FAMILY(river5,
  );
 
 REGISTER_HASH(RIVER5_128,
-   $.desc            = "river5: 8-lane AES-NI hash for file dedup",
+   $.desc            = "river5: 16-lane AES-NI hash for file dedup",
    $.impl            = "aesni",
    $.hash_flags      =
          FLAG_HASH_AES_BASED,
    $.impl_flags      =
          0,
    $.bits            = 128,
-   /* Both verification values are intentionally zero on the first
-    * build. SMHasher3 will print the correct values on first run;
-    * paste them in here and rebuild for clean output. */
-   $.verification_LE = 0x0,
+   /* LE verification value for river5-aesni-v3 (the SMHasher3-passing
+    * default; v3 outputs differ byte-for-byte from v2's 0xB98E2399).
+    * Captured 2026-05-20 (CPU: Intel i7-7700K, AES-NI, GCC). Re-derive
+    * and update if the hash internals change. BE not derived yet;
+    * left at 0 since no big-endian consumer exists today. */
+   $.verification_LE = 0x9EB1D6C2,
    $.verification_BE = 0x0,
    $.hashfn_native   = RIVER5_128_Hash<false>,
    $.hashfn_bswap    = RIVER5_128_Hash<true>
@@ -146,6 +149,7 @@ inject = (
     "  hashes/river5.cpp\n"
     "  hashes/river5/river5.c\n"
     "  hashes/river5/river5_aesni.c\n"
+    "  hashes/river5/river5_aesni_v2.c\n"
     "  hashes/river5/river5_stub.c\n"
     "  hashes/river5/xxhash.c\n"
 )

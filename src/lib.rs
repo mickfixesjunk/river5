@@ -22,12 +22,7 @@ struct river5_ctx {
 }
 
 extern "C" {
-    fn river5_hash(
-        input: *const c_void,
-        len: usize,
-        seed: *const c_uchar,
-        out: *mut c_uchar,
-    );
+    fn river5_hash(input: *const c_void, len: usize, seed: *const c_uchar, out: *mut c_uchar);
     fn river5_new() -> *mut river5_ctx;
     fn river5_new_seeded(seed: *const c_uchar) -> *mut river5_ctx;
     fn river5_update(ctx: *mut river5_ctx, data: *const c_void, len: usize);
@@ -64,7 +59,11 @@ impl Hasher {
 
     pub fn update(&mut self, data: &[u8]) -> &mut Self {
         unsafe {
-            river5_update(self.ctx.as_ptr(), data.as_ptr() as *const c_void, data.len());
+            river5_update(
+                self.ctx.as_ptr(),
+                data.as_ptr() as *const c_void,
+                data.len(),
+            );
         }
         self
     }
@@ -178,7 +177,8 @@ mod tests {
         // lacks AES-NI or CPUID dispatch is broken.
         let name = impl_name();
         assert!(
-            name == "river5-aesni-v2"
+            name == "river5-aesni-v3"
+                || name == "river5-aesni-v2"
                 || name == "river5-aesni-v1"
                 || name == "river5-stub-xxh3",
             "unexpected impl name: {name}"
@@ -189,7 +189,9 @@ mod tests {
     fn block_boundaries_are_stable() {
         // The AES-NI core processes 128-byte blocks. Sizes around the
         // boundary (127, 128, 129) exercise the tail-padding code path.
-        for n in [0usize, 1, 15, 16, 17, 63, 64, 127, 128, 129, 255, 256, 257, 1000, 4096] {
+        for n in [
+            0usize, 1, 15, 16, 17, 63, 64, 127, 128, 129, 255, 256, 257, 1000, 4096,
+        ] {
             let data: Vec<u8> = (0..n).map(|i| (i as u8).wrapping_mul(31)).collect();
             let a = hash(&data);
             let b = hash(&data);
@@ -212,7 +214,9 @@ mod tests {
 
     #[test]
     fn streaming_random_chunking_matches_one_shot() {
-        let data: Vec<u8> = (0..10_000u32).map(|i| ((i * 2654435761) >> 8) as u8).collect();
+        let data: Vec<u8> = (0..10_000u32)
+            .map(|i| ((i * 2654435761) >> 8) as u8)
+            .collect();
         let one = hash(&data);
 
         // Pseudorandom chunk sizes covering < block, == block, > block.
@@ -220,7 +224,9 @@ mod tests {
         let mut h = Hasher::new();
         let mut off = 0;
         for &sz in chunks.iter().cycle() {
-            if off >= data.len() { break; }
+            if off >= data.len() {
+                break;
+            }
             let end = (off + sz).min(data.len());
             h.update(&data[off..end]);
             off = end;

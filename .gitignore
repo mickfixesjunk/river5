@@ -11,3 +11,10 @@ Cargo.lock
 *.pdb
 .vscode/
 .idea/
+
+# SMHasher3 is fetched on demand by scripts/run_smhasher3.sh — don't
+# commit the ~50MB upstream clone.
+/third_party/_smhasher3/
+
+# Run-time diagnostics / test logs.
+/diagnostics/
