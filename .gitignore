@@ -1,0 +1,13 @@
+/target
+/build
+Cargo.lock
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.pdb
+.vscode/
+.idea/

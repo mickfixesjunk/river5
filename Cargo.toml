@@ -1,0 +1,26 @@
+[package]
+name = "river5"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "river5 — 128-bit hash for the superdupe file deduper. Stub stage: wraps xxhash3-128 behind a stable API; AES-NI core to follow."
+license = "MIT"
+repository = "https://github.com/mickfixesjunk/river5"
+links = "river5"
+build = "build.rs"
+exclude = [
+    "bench/",
+    "CMakeLists.txt",
+    "target/",
+    "build/",
+]
+
+[lib]
+name = "river5"
+path = "src/lib.rs"
+
+[build-dependencies]
+cc = "1.0"
+
+[dev-dependencies]
+hex = "0.4"
