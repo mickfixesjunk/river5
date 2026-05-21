@@ -75,6 +75,39 @@ static const hash_impl river5_impl = {
     .free_state  = river5_free_,
 };
 
+/* ---------- river5 v9 (direct vtable, per-block rotation + dual-pattern finalize) ---------- */
+
+static void river5_v9_one(const void *in, size_t len, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V9.one_shot(in, len, NULL, out);
+}
+static void *river5_v9_new(void)
+{
+    return RIVER5_VTABLE_AESNI_V9.new_state(NULL);
+}
+static void  river5_v9_update(void *s, const void *d, size_t n)
+{
+    RIVER5_VTABLE_AESNI_V9.update((river5_ctx_t *)s, d, n);
+}
+static void  river5_v9_digest(void *s, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V9.finalize((river5_ctx_t *)s, out);
+}
+static void  river5_v9_free(void *s)
+{
+    RIVER5_VTABLE_AESNI_V9.free_state((river5_ctx_t *)s);
+}
+
+static const hash_impl river5_v9_impl = {
+    .name        = "river5-v9",
+    .output_bits = 128,
+    .one_shot    = river5_v9_one,
+    .new_state   = river5_v9_new,
+    .update      = river5_v9_update,
+    .digest      = river5_v9_digest,
+    .free_state  = river5_v9_free,
+};
+
 /* ---------- river5 v3 (direct vtable, for A/B vs the new v6 default) ---------- */
 
 static void river5_v3_one(const void *in, size_t len, uint8_t *out)
@@ -238,6 +271,7 @@ static const hash_impl meow_impl = {
 const hash_impl *const g_hashes[] = {
     &xxh3_128,
     &river5_impl,
+    &river5_v9_impl,
     &river5_v3_impl,
     &river5_v2_impl,
     &river5_v1_impl,
