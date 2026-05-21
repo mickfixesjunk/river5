@@ -145,3 +145,55 @@ improvement.
 If staying on v6 for max throughput: v14 is on this branch as
 documented proof that SMHasher3 PASS is achievable, available
 whenever needed.
+
+---
+
+## Correction (2026-05-21): v14 has structural collisions on short text
+
+After the original BRANCH_NOTES claimed "v14 PASSES SMHasher3" based on
+Sanity / Avalanche / BIC / Cyclic / Permutation, the **full** SMHasher3
+battery surfaced serious failures on the short-text keysets:
+
+| Keyset | Key count | 128-bit collisions | Status |
+|---|---|---|---|
+| `Dict` (dictionary words) | 528,194 | **1,515 actual** | FAIL — expected 0 |
+| `Words` (1-4 random alnum chars) | 1,000,000 | **3,969 actual** | FAIL — expected 0 |
+| `Words` (1-16 random alnum chars) | 1,000,000 | **1,149 actual** | FAIL — expected 0 |
+
+These are not narrow-truncation biases — they are **actual duplicate
+full-128-bit hash values for distinct inputs**. v14 produces colliding
+hashes for some pairs of short text strings.
+
+### Why this happened
+
+Hypothesis: v6 and v11 share the **same** finalize structure
+(`butterfly_mix` + 4-round tree + length-fold). The two-stream XOR
+cancellation theory only works when both streams have INDEPENDENT bias
+patterns. The streams ARE independent in their input-mix phase (v6
+uses PSHUFB+AES, v11 uses PCLMULQDQ+AES — different algebra). But the
+finalize phase is identical between the two — so finalize-stage biases
+are CORRELATED, not independent, and XOR amplifies them on certain
+short-input patterns instead of cancelling.
+
+A proper "two-stream cancellation" hash would need:
+- Independent input mix (we had this)
+- AND independent finalize structures (we did NOT have this)
+
+### Disposition
+
+v14 is **NOT shippable** as the "SMHasher-passing variant" without
+fixing the finalize-stage correlation. The branch and tag remain
+pushed for reproducibility and as a documented negative result about
+WHY naive two-stream XOR doesn't work for hashes that share post-mix
+structure.
+
+Anyone reading this who's tempted by "let me try two-stream cancellation
+to fix my hash" should know:
+- The math works IF AND ONLY IF the two streams are TRULY independent
+  across their entire pipelines (input mix + finalize)
+- Sharing any post-input structure between streams creates correlated
+  bias that XOR amplifies rather than cancels
+- Real cryptographic combiner constructions (e.g., HMAC-of-hashes)
+  use distinct hash functions end-to-end, not shared finalize
+
+WAKEUP_SUMMARY.md on main has been corrected.
