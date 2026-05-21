@@ -42,6 +42,8 @@ extern const river5_vtable RIVER5_VTABLE_AESNI;     /* v1: 8 lanes, 128 B blocks
 extern const river5_vtable RIVER5_VTABLE_AESNI_V2;  /* v2: 16 lanes, no per-block diffusion (FAILS SMHasher3) */
 extern const river5_vtable RIVER5_VTABLE_AESNI_V3;  /* v3: 16 lanes + per-block butterfly + pre-diffusion finalize */
 extern const river5_vtable RIVER5_VTABLE_AESNI_V6;  /* v6: v3 + per-lane PSHUFB input scramble — current default. Eliminates v3's 9x Permutation spike. */
+extern const river5_vtable RIVER5_VTABLE_AESNI_V11; /* v11: PCLMULQDQ input mix + per-lane AESENC (used as Stream B in v14) */
+extern const river5_vtable RIVER5_VTABLE_AESNI_V14; /* v14: two-stream (v6 XOR v11) — orthogonal-algebra bias cancellation experiment */
 extern const river5_vtable RIVER5_VTABLE_STUB;      /* xxhash3 fallback */
 
 #endif
