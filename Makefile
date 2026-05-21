@@ -12,6 +12,7 @@ INCLUDES = -Iinclude -Icsrc -Ithird_party/xxhash -Ithird_party/blake3 \
 
 LIB_SRC  = csrc/river5.c csrc/river5_stub.c csrc/river5_aesni.c \
            csrc/river5_aesni_v2.c csrc/river5_aesni_v3.c \
+           csrc/river5_aesni_v6.c csrc/river5_aesni_v7.c \
            third_party/xxhash/xxhash.c
 BENCH_SRC = bench/main.c bench/hashes.c bench/micro.c bench/file.c
 
@@ -57,8 +58,10 @@ $(BUILD)/libriver5.a: $(LIB_SRC) include/river5.h csrc/river5_internal.h | $(BUI
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(INCLUDES) -c csrc/river5_aesni.c -o $(BUILD)/river5_aesni.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(INCLUDES) -c csrc/river5_aesni_v2.c -o $(BUILD)/river5_aesni_v2.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(INCLUDES) -c csrc/river5_aesni_v3.c -o $(BUILD)/river5_aesni_v3.o
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(INCLUDES) -c csrc/river5_aesni_v6.c -o $(BUILD)/river5_aesni_v6.o
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(INCLUDES) -c csrc/river5_aesni_v7.c -o $(BUILD)/river5_aesni_v7.o
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(INCLUDES) -c third_party/xxhash/xxhash.c -o $(BUILD)/xxhash.o
-	ar rcs $@ $(BUILD)/river5.o $(BUILD)/river5_stub.o $(BUILD)/river5_aesni.o $(BUILD)/river5_aesni_v2.o $(BUILD)/river5_aesni_v3.o $(BUILD)/xxhash.o
+	ar rcs $@ $(BUILD)/river5.o $(BUILD)/river5_stub.o $(BUILD)/river5_aesni.o $(BUILD)/river5_aesni_v2.o $(BUILD)/river5_aesni_v3.o $(BUILD)/river5_aesni_v6.o $(BUILD)/river5_aesni_v7.o $(BUILD)/xxhash.o
 
 # ---- BLAKE3 portable build (no SIMD flags) ----
 # We disable AVX-512 in the dispatch because we don't compile blake3_avx512.c

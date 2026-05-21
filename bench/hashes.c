@@ -114,6 +114,72 @@ static const hash_impl river5_v1_impl = {
     .free_state  = river5_v1_free,
 };
 
+/* ---------- river5 v6 (direct vtable, the per-lane PSHUFB attempt) ---------- */
+
+static void river5_v6_one(const void *in, size_t len, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V6.one_shot(in, len, NULL, out);
+}
+static void *river5_v6_new(void)
+{
+    return RIVER5_VTABLE_AESNI_V6.new_state(NULL);
+}
+static void  river5_v6_update(void *s, const void *d, size_t n)
+{
+    RIVER5_VTABLE_AESNI_V6.update((river5_ctx_t *)s, d, n);
+}
+static void  river5_v6_digest(void *s, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V6.finalize((river5_ctx_t *)s, out);
+}
+static void  river5_v6_free(void *s)
+{
+    RIVER5_VTABLE_AESNI_V6.free_state((river5_ctx_t *)s);
+}
+
+static const hash_impl river5_v6_impl = {
+    .name        = "river5-v6",
+    .output_bits = 128,
+    .one_shot    = river5_v6_one,
+    .new_state   = river5_v6_new,
+    .update      = river5_v6_update,
+    .digest      = river5_v6_digest,
+    .free_state  = river5_v6_free,
+};
+
+/* ---------- river5 v7 (direct vtable, combined v6 + v5 attack) ---------- */
+
+static void river5_v7_one(const void *in, size_t len, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V7.one_shot(in, len, NULL, out);
+}
+static void *river5_v7_new(void)
+{
+    return RIVER5_VTABLE_AESNI_V7.new_state(NULL);
+}
+static void  river5_v7_update(void *s, const void *d, size_t n)
+{
+    RIVER5_VTABLE_AESNI_V7.update((river5_ctx_t *)s, d, n);
+}
+static void  river5_v7_digest(void *s, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V7.finalize((river5_ctx_t *)s, out);
+}
+static void  river5_v7_free(void *s)
+{
+    RIVER5_VTABLE_AESNI_V7.free_state((river5_ctx_t *)s);
+}
+
+static const hash_impl river5_v7_impl = {
+    .name        = "river5-v7",
+    .output_bits = 128,
+    .one_shot    = river5_v7_one,
+    .new_state   = river5_v7_new,
+    .update      = river5_v7_update,
+    .digest      = river5_v7_digest,
+    .free_state  = river5_v7_free,
+};
+
 /* ---------- river5 v2 (direct vtable, FAILS SMHasher3, for A/B perf) ---------- */
 
 static void river5_v2_one(const void *in, size_t len, uint8_t *out)
@@ -211,6 +277,8 @@ static const hash_impl meow_impl = {
 const hash_impl *const g_hashes[] = {
     &xxh3_128,
     &river5_impl,
+    &river5_v7_impl,
+    &river5_v6_impl,
     &river5_v2_impl,
     &river5_v1_impl,
     &blake3_impl,

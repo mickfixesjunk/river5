@@ -42,6 +42,7 @@ extern const river5_vtable RIVER5_VTABLE_AESNI;     /* v1: 8 lanes, 128 B blocks
 extern const river5_vtable RIVER5_VTABLE_AESNI_V2;  /* v2: 16 lanes, no per-block diffusion (FAILS SMHasher3) */
 extern const river5_vtable RIVER5_VTABLE_AESNI_V3;  /* v3: 16 lanes + per-block butterfly + pre-diffusion finalize (default) */
 extern const river5_vtable RIVER5_VTABLE_AESNI_V6;  /* v6: v3 + per-lane PSHUFB byte-permutation of input */
+extern const river5_vtable RIVER5_VTABLE_AESNI_V7;  /* v7: v6 + v5's non-linear pre-finalize round (combined attack) */
 extern const river5_vtable RIVER5_VTABLE_STUB;      /* xxhash3 fallback */
 
 #endif
