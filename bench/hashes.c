@@ -51,7 +51,7 @@ static const hash_impl xxh3_128 = {
     .free_state  = xxh3_128_free,
 };
 
-/* ---------- river5 (public API → currently routes to v2) ---------- */
+/* ---------- river5 (public API → routes to v6 on AES-NI CPUs) ---------- */
 
 static void river5_one(const void *in, size_t len, uint8_t *out)
 {
@@ -75,13 +75,40 @@ static const hash_impl river5_impl = {
     .free_state  = river5_free_,
 };
 
-/* ---------- river5 v1 (direct vtable call, for A/B comparison) ----------
- *
- * The public river5_hash() resolves to the best impl available
- * (v2 on AES-NI CPUs). The bench wants to compare v1 against v2
- * directly, so we go through the internal vtable here. This entry
- * is debug-only — superdupe and other consumers only see the
- * public API and shouldn't depend on v1 sticking around. */
+/* ---------- river5 v3 (direct vtable, for A/B vs the new v6 default) ---------- */
+
+static void river5_v3_one(const void *in, size_t len, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V3.one_shot(in, len, NULL, out);
+}
+static void *river5_v3_new(void)
+{
+    return RIVER5_VTABLE_AESNI_V3.new_state(NULL);
+}
+static void  river5_v3_update(void *s, const void *d, size_t n)
+{
+    RIVER5_VTABLE_AESNI_V3.update((river5_ctx_t *)s, d, n);
+}
+static void  river5_v3_digest(void *s, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V3.finalize((river5_ctx_t *)s, out);
+}
+static void  river5_v3_free(void *s)
+{
+    RIVER5_VTABLE_AESNI_V3.free_state((river5_ctx_t *)s);
+}
+
+static const hash_impl river5_v3_impl = {
+    .name        = "river5-v3",
+    .output_bits = 128,
+    .one_shot    = river5_v3_one,
+    .new_state   = river5_v3_new,
+    .update      = river5_v3_update,
+    .digest      = river5_v3_digest,
+    .free_state  = river5_v3_free,
+};
+
+/* ---------- river5 v1 (direct vtable call, for A/B comparison) ---------- */
 
 static void river5_v1_one(const void *in, size_t len, uint8_t *out)
 {
@@ -211,6 +238,7 @@ static const hash_impl meow_impl = {
 const hash_impl *const g_hashes[] = {
     &xxh3_128,
     &river5_impl,
+    &river5_v3_impl,
     &river5_v2_impl,
     &river5_v1_impl,
     &blake3_impl,

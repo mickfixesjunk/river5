@@ -38,11 +38,19 @@ static int cpu_has_aesni(void) { return 0; }
 
 static const river5_vtable *resolve_vtable(void)
 {
-    /* v3 is the SMHasher3-passing default. v2 (no per-block diffusion)
-     * is faster but fails SMHasher3 Avalanche/BIC/Cyclic/Permutation;
-     * v1 is the original 8-lane prototype. Both kept for bench A/B
-     * comparison; public callers always get v3. */
-    return cpu_has_aesni() ? &RIVER5_VTABLE_AESNI_V3 : &RIVER5_VTABLE_STUB;
+    /* v6 is the current default — same algorithmic structure as v3
+     * (16 lanes, per-block butterfly, tree finalize) but with a
+     * per-lane PSHUFB byte-permutation of the input slice before
+     * each AESENC. The PSHUFB step eliminates v3's structural 9x
+     * Permutation spike on cyclic 8-byte inputs (now bounded at
+     * ~1.5x uniformly across all keysets). Costs ~15-25% throughput
+     * vs v3; the trade is "no catastrophic spikes for slightly
+     * slower hash."
+     *
+     * v3, v2, and v1 stay registered in the bench (river5-v3,
+     * river5-v2, river5-v1) for A/B comparison; public callers
+     * always get v6. */
+    return cpu_has_aesni() ? &RIVER5_VTABLE_AESNI_V6 : &RIVER5_VTABLE_STUB;
 }
 
 static const river5_vtable *vtable(void)
