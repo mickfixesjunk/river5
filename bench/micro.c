@@ -73,11 +73,69 @@ static double bench_one_size(const hash_impl *h, uint8_t *buf, size_t n, double 
     return bytes / dt; /* B/s */
 }
 
+/*
+ * Cold-buffer variant: rotates through `n_buffers` distinct input
+ * regions packed into `pool` of size `pool_bytes`. Each call hashes
+ * a different region than the previous call, so the input is unlikely
+ * to be hot in L1/L2 from the immediately-preceding call.
+ *
+ * Caller is responsible for sizing the pool relative to cache levels:
+ *   pool_bytes >  L1 (32 KiB on KbL) → input cold to L1 across calls
+ *   pool_bytes >  L2 (256 KiB)       → input cold to L2 across calls
+ *   pool_bytes >  L3 (8 MiB on i7-7700K) → input forces RAM traffic
+ *
+ * For input size > pool_bytes the loop just hashes one buffer
+ * (effectively hot) — caller should pick pool_bytes >= input * 2.
+ */
+static double bench_one_size_cold(const hash_impl *h, uint8_t *pool,
+                                   size_t pool_bytes, size_t n, double min_sec)
+{
+    uint8_t out[64];
+    size_t n_buffers = (n > 0) ? (pool_bytes / n) : 1;
+    if (n_buffers < 1) n_buffers = 1;
+
+    /* Calibration. */
+    uint64_t iters = 1;
+    double t = 0.0;
+    for (;;) {
+        size_t bi = 0;
+        double t0 = now_seconds();
+        for (uint64_t i = 0; i < iters; ++i) {
+            h->one_shot(pool + (bi * n), n, out);
+            bi = bi + 1;
+            if (bi >= n_buffers) bi = 0;
+        }
+        t = now_seconds() - t0;
+        if (t >= min_sec / 10.0) break;
+        iters *= 4;
+        if (iters > (1ULL << 40)) break;
+    }
+
+    uint64_t scaled = (uint64_t)((double)iters * (min_sec / (t > 0 ? t : 1e-9)));
+    if (scaled < iters) scaled = iters;
+
+    size_t bi = 0;
+    double t0 = now_seconds();
+    for (uint64_t i = 0; i < scaled; ++i) {
+        h->one_shot(pool + (bi * n), n, out);
+        bi = bi + 1;
+        if (bi >= n_buffers) bi = 0;
+    }
+    double dt = now_seconds() - t0;
+
+    static volatile uint8_t sink;
+    sink ^= out[0];
+
+    double bytes = (double)scaled * (double)n;
+    return bytes / dt;
+}
+
 int run_micro(int argc, char **argv)
 {
     double min_sec = 1.0;
     const char *only = NULL;
     int csv = 0;
+    size_t cold_pool_bytes = 0;   /* 0 means hot (current default) */
 
     for (int i = 0; i < argc; ++i) {
         if (strcmp(argv[i], "--csv") == 0) csv = 1;
@@ -85,22 +143,42 @@ int run_micro(int argc, char **argv)
             min_sec = atof(argv[++i]);
         } else if (strcmp(argv[i], "--hash") == 0 && i + 1 < argc) {
             only = argv[++i];
+        } else if (strcmp(argv[i], "--cold") == 0 && i + 1 < argc) {
+            /* Accept either raw bytes (e.g. 524288) or human suffix
+             * (e.g. 512K, 16M). Defaults to bytes if no suffix. */
+            char *endp = NULL;
+            unsigned long long v = strtoull(argv[++i], &endp, 0);
+            if (endp && *endp) {
+                if (*endp == 'k' || *endp == 'K') v *= 1024ULL;
+                else if (*endp == 'm' || *endp == 'M') v *= 1024ULL * 1024;
+                else if (*endp == 'g' || *endp == 'G') v *= 1024ULL * 1024 * 1024;
+            }
+            cold_pool_bytes = (size_t)v;
         }
     }
 
-    /* Allocate the largest size once, slice into it for smaller sizes. */
+    /* Allocate either the cold pool (if --cold given) or the existing
+     * single hot buffer. Cold pool needs to be at least one max-size
+     * input; we round up so the largest sweep size still fits. */
     size_t max_size = kSizes[kNumSizes - 1];
-    uint8_t *buf = (uint8_t *)aligned_alloc(64, max_size);
+    size_t alloc_size = cold_pool_bytes > 0 ? cold_pool_bytes : max_size;
+    if (alloc_size < max_size) alloc_size = max_size;
+    uint8_t *buf = (uint8_t *)aligned_alloc(64, alloc_size);
     if (!buf) {
-        fprintf(stderr, "alloc failed\n");
+        fprintf(stderr, "alloc failed (%zu bytes)\n", alloc_size);
         return 1;
     }
-    fill_random(buf, max_size, 0xDDD128CAFEULL);
+    fill_random(buf, alloc_size, 0xDDD128CAFEULL);
 
     if (csv) {
-        printf("hash,size_bytes,throughput_bytes_per_sec,throughput_gb_per_sec,ns_per_byte\n");
+        printf("hash,size_bytes,mode,pool_bytes,throughput_bytes_per_sec,throughput_gb_per_sec,ns_per_byte\n");
     } else {
-        printf("=== Microbench (in-cache, ~%.1fs per cell) ===\n", min_sec);
+        if (cold_pool_bytes > 0) {
+            printf("=== Microbench (COLD-buffer, pool=%zu bytes, ~%.1fs per cell) ===\n",
+                   cold_pool_bytes, min_sec);
+        } else {
+            printf("=== Microbench (in-cache, hot buffer, ~%.1fs per cell) ===\n", min_sec);
+        }
         printf("%-14s %10s %14s %12s\n", "hash", "size", "throughput", "ns/byte");
         printf("%-14s %10s %14s %12s\n", "----", "----", "----------", "-------");
     }
@@ -111,13 +189,21 @@ int run_micro(int argc, char **argv)
 
         for (size_t si = 0; si < kNumSizes; ++si) {
             size_t n = kSizes[si];
-            double bps = bench_one_size(h, buf, n, min_sec);
+            double bps;
+            if (cold_pool_bytes > 0) {
+                bps = bench_one_size_cold(h, buf, alloc_size, n, min_sec);
+            } else {
+                bps = bench_one_size(h, buf, n, min_sec);
+            }
             double gbps = bps / 1e9;
             double ns_per_byte = 1e9 / bps;
 
             if (csv) {
-                printf("%s,%zu,%.0f,%.3f,%.4f\n",
-                       h->name, n, bps, gbps, ns_per_byte);
+                printf("%s,%zu,%s,%zu,%.0f,%.3f,%.4f\n",
+                       h->name, n,
+                       cold_pool_bytes > 0 ? "cold" : "hot",
+                       cold_pool_bytes > 0 ? alloc_size : n,
+                       bps, gbps, ns_per_byte);
             } else {
                 char size_str[32];
                 if (n >= 1024 * 1024) snprintf(size_str, sizeof size_str, "%zuM", n / (1024 * 1024));

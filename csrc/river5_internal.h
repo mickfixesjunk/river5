@@ -43,6 +43,7 @@ extern const river5_vtable RIVER5_VTABLE_AESNI_V2;  /* v2: 16 lanes, no per-bloc
 extern const river5_vtable RIVER5_VTABLE_AESNI_V3;  /* v3: 16 lanes + per-block butterfly + pre-diffusion finalize */
 extern const river5_vtable RIVER5_VTABLE_AESNI_V6;  /* v6: v3 + per-lane PSHUFB input scramble — prior default; eliminates v3's 9x Permutation spike */
 extern const river5_vtable RIVER5_VTABLE_AESNI_V15; /* v15: v6 minus per-block butterfly — CURRENT DEFAULT; ~2x v6 throughput, clean Avalanche, verified 0 collisions on 150M short-input keys */
+extern const river5_vtable RIVER5_VTABLE_AESNI_V15P;/* v15p: v15 + aggressive front-load prefetch — experiment for cold-input perf, not for production */
 extern const river5_vtable RIVER5_VTABLE_STUB;      /* xxhash3 fallback */
 
 #endif

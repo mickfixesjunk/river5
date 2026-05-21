@@ -75,6 +75,39 @@ static const hash_impl river5_impl = {
     .free_state  = river5_free_,
 };
 
+/* ---------- river5 v15p (experimental: v15 + aggressive front-load prefetch) ---------- */
+
+static void river5_v15p_one(const void *in, size_t len, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V15P.one_shot(in, len, NULL, out);
+}
+static void *river5_v15p_new(void)
+{
+    return RIVER5_VTABLE_AESNI_V15P.new_state(NULL);
+}
+static void  river5_v15p_update(void *s, const void *d, size_t n)
+{
+    RIVER5_VTABLE_AESNI_V15P.update((river5_ctx_t *)s, d, n);
+}
+static void  river5_v15p_digest(void *s, uint8_t *out)
+{
+    RIVER5_VTABLE_AESNI_V15P.finalize((river5_ctx_t *)s, out);
+}
+static void  river5_v15p_free(void *s)
+{
+    RIVER5_VTABLE_AESNI_V15P.free_state((river5_ctx_t *)s);
+}
+
+static const hash_impl river5_v15p_impl = {
+    .name        = "river5-v15p",
+    .output_bits = 128,
+    .one_shot    = river5_v15p_one,
+    .new_state   = river5_v15p_new,
+    .update      = river5_v15p_update,
+    .digest      = river5_v15p_digest,
+    .free_state  = river5_v15p_free,
+};
+
 /* ---------- river5 v15 (direct vtable, NEW default — registered for A/B alongside `river5`) ---------- */
 
 static void river5_v15_one(const void *in, size_t len, uint8_t *out)
@@ -304,6 +337,7 @@ static const hash_impl meow_impl = {
 const hash_impl *const g_hashes[] = {
     &xxh3_128,
     &river5_impl,
+    &river5_v15p_impl,
     &river5_v15_impl,
     &river5_v6_impl,
     &river5_v3_impl,
