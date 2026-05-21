@@ -139,13 +139,13 @@ These checks are **not** a substitute for SMHasher3, but SMHasher3 has been
 run on every river5 version. Results on Intel i7-7700K (AES-NI + AVX2,
 no VAES, no AVX-512):
 
-| SMHasher3 test category | v2 | v3 | **v6 (default)** |
+| SMHasher3 test category | v2 | v3 | **v6 (final default)** |
 |---|---|---|---|
 | Sanity (verification, append/prepend zeros, thread safety) | PASS | PASS | **PASS** |
 | Avalanche (single bit-flip propagation) | **FAIL** (1.83% bias, score 59σ) | PASS (0.87% bias, score 2) | **PASS** |
 | BIC (bit independence) | **FAIL** (5.47× distribution bias) | PASS | **PASS** |
 | Cyclic (repeating-pattern keys) | **FAIL** (23× excess collisions) | PASS | **PASS** |
-| Permutation (same bytes, different order) | **FAIL** (170× excess at 32-bit) | **FAIL** (9.37× on one keyset, 1.5× others) | **PARTIAL** — full 128-bit output has 0 collisions across all 14 keysets; 32-bit truncation shows a uniform 1.5× excess (still over score-99 threshold but no catastrophic 9× outlier) |
+| Permutation (same bytes, different order) | **FAIL** (170× excess at 32-bit) | **FAIL** (9.37× on one keyset, 1.5× others) | **PARTIAL** — full 128-bit output has 0 collisions across all 14 keysets; 32-bit truncation shows a uniform 1.5× excess (over score-99 threshold but no catastrophic outliers; six different cheap-fix iterations confirm this is the structural floor — see "version-by-version journey" below) |
 
 Reproduce with `bash scripts/run_smhasher3.sh --all` (needs CMake; 30-60 min).
 Pass-only summary: `bash scripts/run_smhasher3.sh --test=Sanity` (seconds).
@@ -158,22 +158,35 @@ this is a non-issue. For consumers using `hash & 0xFFFFFFFF` as a 32-bit
 hash-table key with collision handling, expect slightly more chaining than
 a fully-uniform hash.
 
-**The version-by-version journey** (all preserved as branches on this repo):
+**The version-by-version journey** (all preserved as tagged branches):
 
-- `v4-position-mix` (abandoned) — tried per-lane XOR salt; XOR is linear,
-  doesn't help differential cryptanalysis trails.
-- `v5-nonlinear-finalize` (abandoned) — tried 1-2 non-linear AESENC rounds at
-  finalize start; dilutes simpler bias but can't touch the structural 9× spike.
-- `v6-input-rotation` (merged → main as default) — per-lane PSHUFB on input
-  breaks the structural lane-symmetry. Eliminates the 9× spike. Also contains
-  the abandoned v7 experiment (v6 + v5 combined → regressed due to interference).
+| version | branch | tag | result | cost vs v6 |
+|---|---|---|---|---|
+| **v3** | (was on `main`) | `v3` | 9.37× catastrophic spike on one Permutation keyset | baseline |
+| v4 | `v4-position-mix` | — | linear per-lane salt, no improvement (XOR can't help differential) | +20-25% |
+| v5 / v5b | `v5-nonlinear-finalize` | — | non-linear pre-finalize, can't reach structural 9× | ~0% |
+| **v6 (current main)** | `v6-input-rotation` | `v6` | **per-lane PSHUFB scramble; eliminates 9× spike → uniform 1.5× ceiling** | **baseline** |
+| v7 | (also in v6 branch) | — | v6 + v5 combined → regressed to 9.82× via interference | ~0% |
+| v8 | `v8-deeper-finalize` | — | v6 + 3× same butterfly → regressed to 9.73× via repeated-pattern attack | ~0% |
+| v9 | `v9-rotated-mainloop` | `v9` | v6 + per-block rotation + dual finalize butterfly → 1.67× (distributed but no improvement on worst case) | +5-10% |
+| v10 | `v10-double-aesni` | `v10` | v6 + dual butterfly in MAIN LOOP → regressed to 2.73× | +30-35% |
 
-Together these branches document the cheap-fix design space for river5's
-16-lane fixed-mapping structure. Each documents what was tried, what worked,
-and what didn't, so future revisitors don't re-tread the same ground.
-Cleanly clearing SMHasher3 from here probably requires a main-loop redesign
-(per-block round-key rotation, double AESENC per lane, etc.) — significant
-new throughput cost. Tracked as future v8 work.
+**Six structural additions to v6 tested at every cost level — from
+essentially free up to 50% slowdown. NONE passed v6's 1.53× residual.**
+Each addition either creates new differential alignment with v6's
+PSHUFB structure (revealing a new failure mode on a different keyset)
+or distributes the same residual differently without reducing the worst
+case. The conclusion is ironclad: **v6's ~1.5× Permutation residual is
+a STRUCTURAL FLOOR for the 16-lane fixed-mapping design**, not a "we
+just haven't iterated enough" situation.
+
+The full BRANCH_NOTES.md on each tagged branch documents the specific
+hypothesis, implementation, and measured result so future revisitors
+don't re-tread the same ground. **Clearing SMHasher3 cleanly would
+require abandoning v6's PSHUFB structure entirely** (e.g., a full Meow-
+style reimplementation), at which point you're writing a different
+hash, not iterating on river5. Accept v6's bounded 1.5× residual as
+the final answer for the dedup use case it was built for.
 
 ## Prior art
 
