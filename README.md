@@ -1,6 +1,6 @@
 # river5
 
-A 128-bit hash function for the [superdupe](https://github.com/mickfixesjunk/superdupe)
+A 128-bit hash function for the [superdupe](https://github.com/mickfixesjunk/superdeduper)
 file deduper, plus a benchmark harness that compares it head-to-head against
 xxhash3-128, BLAKE3, MetroHash-128, and Meow Hash.
 
@@ -351,7 +351,7 @@ scripts/run_smhasher3.sh                         # full SMHasher3 (needs cmake)
 
 ## Acknowledgements
 
-The whole reason this exists is the [superdupe](https://github.com/mickfixesjunk/superdupe)
+The whole reason this exists is the [superdupe](https://github.com/mickfixesjunk/superdeduper)
 file deduper project, which needed a fast 128-bit hash and where the original
 "can we beat xxhash3" question came from. The framing in this README — *engineering
 package, not algorithm; one workload, one CPU; humble about prior art* — exists
