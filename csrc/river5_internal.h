@@ -35,6 +35,19 @@ typedef struct {
     void          (*update)(river5_ctx_t *ctx, const void *data, size_t len);
     void          (*finalize)(river5_ctx_t *ctx, uint8_t *out);
     void          (*free_state)(river5_ctx_t *ctx);
+
+    /* Initialize a context in caller-provided memory (no heap alloc).
+     * Caller guarantees: storage is at least ctx_bytes_required and
+     * aligned to RIVER5_CTX_ALIGN. Returns the ctx pointer (= storage
+     * cast) on success, NULL on size/alignment violation.
+     * The caller never calls free_state() on a ctx created this way;
+     * the storage is caller-owned and lives until the caller drops it. */
+    river5_ctx_t *(*init_in)(void *storage, const uint8_t *seed);
+
+    /* Minimum storage bytes needed for `init_in`. Each variant fills
+     * this with its own sizeof(struct river5_ctx) at static init. */
+    size_t          ctx_bytes_required;
+
     const char     *name;
 } river5_vtable;
 

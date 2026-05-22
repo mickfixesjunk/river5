@@ -290,6 +290,17 @@ static river5_ctx_t *v6_new(const uint8_t *seed)
     return c;
 }
 
+/* Stack-allocatable variant of new — caller-provided storage, no malloc. */
+RIVER5_AESNI_FN
+static river5_ctx_t *v6_init_in(void *storage, const uint8_t *seed)
+{
+    river5_ctx_t *c = (river5_ctx_t *)storage;
+    init_lanes(c->lane, seed);
+    c->total_bytes = 0;
+    c->buf_len     = 0;
+    return c;
+}
+
 RIVER5_AESNI_FN
 static void v6_update(river5_ctx_t *c, const void *data, size_t len)
 {
@@ -359,11 +370,16 @@ static void v6_free(river5_ctx_t *c)
 #endif
 }
 
+_Static_assert(sizeof(struct river5_ctx) <= RIVER5_CTX_BYTES,
+               "v6 ctx exceeds RIVER5_CTX_BYTES — bump constant in river5.h");
+
 const river5_vtable RIVER5_VTABLE_AESNI_V6 = {
-    .one_shot   = v6_one_shot,
-    .new_state  = v6_new,
-    .update     = v6_update,
-    .finalize   = v6_finalize,
-    .free_state = v6_free,
-    .name       = "river5-aesni-v6",
+    .one_shot           = v6_one_shot,
+    .new_state          = v6_new,
+    .update             = v6_update,
+    .finalize           = v6_finalize,
+    .free_state         = v6_free,
+    .init_in            = v6_init_in,
+    .ctx_bytes_required = sizeof(struct river5_ctx),
+    .name               = "river5-aesni-v6",
 };

@@ -29,7 +29,29 @@ extern "C" {
     fn river5_finalize(ctx: *mut river5_ctx, out: *mut c_uchar);
     fn river5_free(ctx: *mut river5_ctx);
     fn river5_impl_name() -> *const c_char;
+
+    fn river5_init_in(
+        storage: *mut c_void,
+        storage_size: usize,
+        seed: *const c_uchar,
+    ) -> *mut river5_ctx;
 }
+
+/* Mirror of include/river5.h's RIVER5_CTX_BYTES / RIVER5_CTX_ALIGN.
+ * The static-assert on the C side guarantees every variant's actual
+ * ctx size fits within this number. If a future variant grows beyond,
+ * bump RIVER5_CTX_BYTES in both places (the C static_assert will
+ * refuse to compile otherwise). */
+const RIVER5_CTX_BYTES: usize = 1024;
+const RIVER5_CTX_ALIGN: usize = 16;
+
+/* Compile-time assertion that AlignedCtxStorage's repr(C, align(16))
+ * matches RIVER5_CTX_ALIGN. If a future change to RIVER5_CTX_ALIGN
+ * makes them diverge, this fails to compile. */
+const _: () = assert!(
+    std::mem::align_of::<AlignedCtxStorage>() >= RIVER5_CTX_ALIGN,
+    "AlignedCtxStorage alignment must meet RIVER5_CTX_ALIGN"
+);
 
 /// Streaming 128-bit hasher.
 pub struct Hasher {
@@ -88,6 +110,137 @@ impl Default for Hasher {
 impl Drop for Hasher {
     fn drop(&mut self) {
         unsafe { river5_free(self.ctx.as_ptr()) };
+    }
+}
+
+/// Stack-allocated streaming hasher — avoids the per-call heap alloc
+/// that [`Hasher::new`] does.
+///
+/// On AES-NI-capable hosts this stores the hash state inline in the
+/// struct (no heap traffic at construction). On hosts without AES-NI
+/// (where `river5_init_in` is unsupported by the xxhash stub), `new`
+/// falls back to the heap-allocating path via an internal [`Hasher`].
+///
+/// API mirrors [`Hasher`]: `new`, `update`, `finalize`. Output and
+/// final hash bytes are identical to [`Hasher`] for the same input.
+///
+/// Right tool for hot paths that hash many short buffers — for example
+/// a streaming format-aware fingerprinter that constructs one hasher
+/// per file. For one-shot single-buffer hashing, prefer [`hash`] which
+/// is even cheaper (no streaming state at all).
+pub struct StackHasher {
+    /// Inline ctx storage. `repr(C, align(16))` so the bytes are
+    /// suitable for the C-side `river5_init_in` contract.
+    storage: AlignedCtxStorage,
+    /// Set on `new()` to point into `storage` on AES-NI hosts. On stub
+    /// hosts, `init_in` returns NULL and we keep a heap-allocated
+    /// `Hasher` here instead — see `Backing`.
+    backing: Backing,
+}
+
+#[repr(C, align(16))]
+struct AlignedCtxStorage {
+    bytes: [u8; RIVER5_CTX_BYTES],
+}
+
+enum Backing {
+    /// Pointer into `self.storage` — no free on Drop.
+    InPlace(NonNull<river5_ctx>),
+    /// Stub fallback — heap-allocated, must be freed on Drop.
+    Fallback(NonNull<river5_ctx>),
+}
+
+unsafe impl Send for StackHasher {}
+unsafe impl Sync for StackHasher {}
+
+impl StackHasher {
+    pub fn new() -> Self {
+        Self::with_seed_opt(std::ptr::null())
+    }
+
+    pub fn new_seeded(seed: &[u8; SEED_BYTES]) -> Self {
+        Self::with_seed_opt(seed.as_ptr())
+    }
+
+    fn with_seed_opt(seed_ptr: *const c_uchar) -> Self {
+        let mut sh = Self {
+            storage: AlignedCtxStorage {
+                bytes: [0u8; RIVER5_CTX_BYTES],
+            },
+            // Placeholder; overwritten below.
+            backing: Backing::Fallback(NonNull::dangling()),
+        };
+        // Safety: storage is repr(C, align(16)) — meets RIVER5_CTX_ALIGN
+        // (16). Storage size is RIVER5_CTX_BYTES. `river5_init_in`
+        // validates both and returns NULL on the stub variant.
+        let ctx = unsafe {
+            river5_init_in(
+                sh.storage.bytes.as_mut_ptr() as *mut c_void,
+                RIVER5_CTX_BYTES,
+                seed_ptr,
+            )
+        };
+        sh.backing = match NonNull::new(ctx) {
+            Some(p) => Backing::InPlace(p),
+            None => {
+                // Stub host — fall back to heap-allocated Hasher.
+                let heap_ctx = unsafe {
+                    if seed_ptr.is_null() {
+                        river5_new()
+                    } else {
+                        river5_new_seeded(seed_ptr)
+                    }
+                };
+                Backing::Fallback(
+                    NonNull::new(heap_ctx)
+                        .expect("river5_new fallback returned NULL"),
+                )
+            }
+        };
+        sh
+    }
+
+    pub fn update(&mut self, data: &[u8]) -> &mut Self {
+        let ctx = match self.backing {
+            Backing::InPlace(p) | Backing::Fallback(p) => p,
+        };
+        unsafe {
+            river5_update(
+                ctx.as_ptr(),
+                data.as_ptr() as *const c_void,
+                data.len(),
+            );
+        }
+        self
+    }
+
+    pub fn finalize(mut self) -> [u8; OUTPUT_BYTES] {
+        let ctx = match self.backing {
+            Backing::InPlace(p) | Backing::Fallback(p) => p,
+        };
+        let mut out = [0u8; OUTPUT_BYTES];
+        unsafe {
+            river5_finalize(ctx.as_ptr(), out.as_mut_ptr());
+        }
+        let _ = &mut self;
+        out
+    }
+}
+
+impl Default for StackHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for StackHasher {
+    fn drop(&mut self) {
+        // Only the heap-allocated fallback needs an explicit free.
+        // The in-place variant points into `self.storage` which is
+        // freed when the struct itself is dropped.
+        if let Backing::Fallback(p) = self.backing {
+            unsafe { river5_free(p.as_ptr()) };
+        }
     }
 }
 
@@ -168,6 +321,83 @@ mod tests {
     fn seeded_differs_from_default() {
         let seed = [0x42u8; SEED_BYTES];
         assert_ne!(hash(b"foo"), hash_seeded(b"foo", &seed));
+    }
+
+    #[test]
+    fn stack_hasher_matches_hasher() {
+        let data = b"the quick brown fox jumps over the lazy dog";
+
+        let heap_out = {
+            let mut h = Hasher::new();
+            h.update(&data[..10]);
+            h.update(&data[10..25]);
+            h.update(&data[25..]);
+            h.finalize()
+        };
+
+        let stack_out = {
+            let mut h = StackHasher::new();
+            h.update(&data[..10]);
+            h.update(&data[10..25]);
+            h.update(&data[25..]);
+            h.finalize()
+        };
+
+        assert_eq!(heap_out, stack_out,
+            "StackHasher and Hasher must produce identical bytes for the same input");
+    }
+
+    #[test]
+    fn stack_hasher_one_shot_matches() {
+        // Single-buffer update via StackHasher must match river5::hash().
+        let data = b"some bytes for the stack hasher";
+        let one = hash(data);
+        let stacked = {
+            let mut h = StackHasher::new();
+            h.update(data);
+            h.finalize()
+        };
+        assert_eq!(one, stacked);
+    }
+
+    #[test]
+    fn stack_hasher_seeded() {
+        let seed = [0xA5u8; SEED_BYTES];
+        let data = b"seeded test input";
+
+        let heap_out = {
+            let mut h = Hasher::new_seeded(&seed);
+            h.update(data);
+            h.finalize()
+        };
+        let stack_out = {
+            let mut h = StackHasher::new_seeded(&seed);
+            h.update(data);
+            h.finalize()
+        };
+        assert_eq!(heap_out, stack_out);
+        assert_ne!(heap_out, hash(data),
+            "seeded output should differ from unseeded");
+    }
+
+    #[test]
+    fn stack_hasher_streaming_random_chunks_matches_one_shot() {
+        // Mirror the existing streaming_random_chunking_matches_one_shot
+        // test but with StackHasher to ensure split-buffer streaming
+        // also matches.
+        let data: Vec<u8> = (0u8..=255).cycle().take(8192).collect();
+        let one = hash(&data);
+
+        let chunk_sizes = [1usize, 3, 7, 16, 31, 64, 127, 256, 1023, 4096];
+        for &chunk in &chunk_sizes {
+            let mut h = StackHasher::new();
+            for slice in data.chunks(chunk) {
+                h.update(slice);
+            }
+            let streamed = h.finalize();
+            assert_eq!(one, streamed,
+                "StackHasher with chunk_size={chunk} must match one-shot");
+        }
     }
 
     #[test]

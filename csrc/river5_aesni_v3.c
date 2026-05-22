@@ -282,6 +282,16 @@ static river5_ctx_t *v3_new(const uint8_t *seed)
 }
 
 RIVER5_AESNI_FN
+static river5_ctx_t *v3_init_in(void *storage, const uint8_t *seed)
+{
+    river5_ctx_t *c = (river5_ctx_t *)storage;
+    init_lanes(c->lane, seed);
+    c->total_bytes = 0;
+    c->buf_len     = 0;
+    return c;
+}
+
+RIVER5_AESNI_FN
 static void v3_update(river5_ctx_t *c, const void *data, size_t len)
 {
     const uint8_t *p = (const uint8_t *)data;
@@ -349,11 +359,16 @@ static void v3_free(river5_ctx_t *c)
 #endif
 }
 
+_Static_assert(sizeof(struct river5_ctx) <= RIVER5_CTX_BYTES,
+               "v3 ctx exceeds RIVER5_CTX_BYTES");
+
 const river5_vtable RIVER5_VTABLE_AESNI_V3 = {
-    .one_shot   = v3_one_shot,
-    .new_state  = v3_new,
-    .update     = v3_update,
-    .finalize   = v3_finalize,
-    .free_state = v3_free,
-    .name       = "river5-aesni-v3",
+    .one_shot           = v3_one_shot,
+    .new_state          = v3_new,
+    .update             = v3_update,
+    .finalize           = v3_finalize,
+    .free_state         = v3_free,
+    .init_in            = v3_init_in,
+    .ctx_bytes_required = sizeof(struct river5_ctx),
+    .name               = "river5-aesni-v3",
 };

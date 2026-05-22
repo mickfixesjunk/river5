@@ -324,6 +324,17 @@ static river5_ctx_t *v15_new(const uint8_t *seed)
     return c;
 }
 
+/* Stack-allocatable variant of new — caller-provided storage, no malloc. */
+RIVER5_AESNI_FN
+static river5_ctx_t *v15_init_in(void *storage, const uint8_t *seed)
+{
+    river5_ctx_t *c = (river5_ctx_t *)storage;
+    init_lanes(c->lane, seed);
+    c->total_bytes = 0;
+    c->buf_len     = 0;
+    return c;
+}
+
 RIVER5_AESNI_FN
 static void v15_update(river5_ctx_t *c, const void *data, size_t len)
 {
@@ -393,11 +404,17 @@ static void v15_free(river5_ctx_t *c)
 #endif
 }
 
+/* Static check: ctx must fit in caller-provided storage. */
+_Static_assert(sizeof(struct river5_ctx) <= RIVER5_CTX_BYTES,
+               "v15 ctx exceeds RIVER5_CTX_BYTES — bump constant in river5.h");
+
 const river5_vtable RIVER5_VTABLE_AESNI_V15 = {
-    .one_shot   = v15_one_shot,
-    .new_state  = v15_new,
-    .update     = v15_update,
-    .finalize   = v15_finalize,
-    .free_state = v15_free,
-    .name       = "river5-aesni-v15",
+    .one_shot           = v15_one_shot,
+    .new_state          = v15_new,
+    .update             = v15_update,
+    .finalize           = v15_finalize,
+    .free_state         = v15_free,
+    .init_in            = v15_init_in,
+    .ctx_bytes_required = sizeof(struct river5_ctx),
+    .name               = "river5-aesni-v15",
 };

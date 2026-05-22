@@ -69,11 +69,24 @@ static void stub_free(river5_ctx_t *c)
     free(c);
 }
 
+/* xxhash3's state needs heap alloc + 64-byte alignment, neither of
+ * which fits the river5_init_in storage contract. Return NULL to
+ * signal "not supported" — the Rust StackHasher wrapper falls back
+ * to heap-allocated Hasher on non-AES-NI hosts. */
+static river5_ctx_t *stub_init_in(void *storage, const uint8_t *seed)
+{
+    (void)storage;
+    (void)seed;
+    return NULL;
+}
+
 const river5_vtable RIVER5_VTABLE_STUB = {
-    .one_shot   = stub_one_shot,
-    .new_state  = stub_new,
-    .update     = stub_update,
-    .finalize   = stub_finalize,
-    .free_state = stub_free,
-    .name       = "river5-stub-xxh3",
+    .one_shot           = stub_one_shot,
+    .new_state          = stub_new,
+    .update             = stub_update,
+    .finalize           = stub_finalize,
+    .free_state         = stub_free,
+    .init_in            = stub_init_in,
+    .ctx_bytes_required = 0,                /* signals "init_in unsupported" */
+    .name               = "river5-stub-xxh3",
 };
