@@ -24,7 +24,14 @@ fn main() {
     // river5_aesni.c uses GCC/Clang `target` attributes on every
     // function, so we don't need -maes globally. xxhash is happy
     // with default flags.
-    if !cfg!(target_env = "msvc") {
+    //
+    // C11 is required everywhere because each `*_aesni*.c` ends in a
+    // `_Static_assert(sizeof(struct river5_ctx) <= RIVER5_CTX_BYTES, …)`
+    // that guards the StackHasher ABI. MSVC defaults to C89 and
+    // rejects `_Static_assert` without `/std:c11`.
+    if cfg!(target_env = "msvc") {
+        build.flag_if_supported("/std:c11");
+    } else {
         build.flag_if_supported("-std=c11");
         build.flag_if_supported("-fno-strict-aliasing");
     }
