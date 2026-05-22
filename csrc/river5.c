@@ -11,6 +11,7 @@
 #include "river5_internal.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #  if defined(_MSC_VER)
@@ -106,6 +107,17 @@ void river5_free(river5_ctx_t *ctx)
 {
     if (!ctx) return;
     vtable()->free_state(ctx);
+}
+
+river5_ctx_t *river5_init_in(void *storage,
+                              size_t storage_size,
+                              const uint8_t seed[RIVER5_SEED_BYTES])
+{
+    if (!storage) return NULL;
+    if (((uintptr_t)storage & (RIVER5_CTX_ALIGN - 1)) != 0) return NULL;
+    const river5_vtable *v = vtable();
+    if (storage_size < v->ctx_bytes_required) return NULL;
+    return v->init_in(storage, seed);
 }
 
 const char *river5_impl_name(void)

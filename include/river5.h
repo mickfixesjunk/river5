@@ -36,6 +36,34 @@ void          river5_update(river5_ctx_t *ctx, const void *data, size_t len);
 void          river5_finalize(river5_ctx_t *ctx, uint8_t out[RIVER5_HASH_BYTES]);
 void          river5_free(river5_ctx_t *ctx);
 
+/*
+ * Stack-allocatable streaming variant — avoids the per-call heap
+ * allocation that river5_new() does. The caller provides a buffer
+ * of at least RIVER5_CTX_BYTES bytes, aligned to RIVER5_CTX_ALIGN.
+ *
+ * Returns the same ctx pointer (cast from the storage) on success,
+ * NULL on size/alignment error.
+ *
+ * Usage pattern (C):
+ *     _Alignas(RIVER5_CTX_ALIGN) uint8_t storage[RIVER5_CTX_BYTES];
+ *     river5_ctx_t *ctx = river5_init_in(storage, sizeof storage, NULL);
+ *     river5_update(ctx, data, len);
+ *     river5_finalize(ctx, out);
+ *     // No river5_free() — storage is caller-owned.
+ *
+ * The Rust `StackHasher` type wraps this; consumers who specifically
+ * want to avoid the per-call allocation use it for hot paths.
+ *
+ * RIVER5_CTX_BYTES is sized generously (1024) to cover all current
+ * and reasonably-future variants; the actual ctx for v15 is ~528 B.
+ * Static asserts in each variant's TU guarantee its sizeof fits.
+ */
+#define RIVER5_CTX_BYTES 1024
+#define RIVER5_CTX_ALIGN 16
+river5_ctx_t *river5_init_in(void *storage,
+                              size_t storage_size,
+                              const uint8_t seed[RIVER5_SEED_BYTES]);
+
 /* Implementation tag, useful for benchmark output. Returns e.g.
  * "river5-stub-xxh3" today, "river5-aesni-v1" once the real impl lands. */
 const char *river5_impl_name(void);
