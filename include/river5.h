@@ -1,5 +1,5 @@
 /*
- * river5 — 128-bit hash for the superdupe file deduper.
+ * river5 — 128-bit hash for the superdeduper file deduper.
  *
  * Stable C ABI. The current implementation is a STUB that delegates to
  * xxhash3-128 so outputs are real, stable, and deterministic; the AES-NI

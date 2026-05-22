@@ -1,6 +1,6 @@
 # river5
 
-A 128-bit hash function for the [superdupe](https://github.com/mickfixesjunk/superdeduper)
+A 128-bit hash function for the [superdeduper](https://github.com/mickfixesjunk/superdeduper)
 file deduper, plus a benchmark harness that compares it head-to-head against
 xxhash3-128, BLAKE3, MetroHash-128, and Meow Hash.
 
@@ -24,7 +24,7 @@ xxhash3-128, BLAKE3, MetroHash-128, and Meow Hash.
   without AES-NI. Public API in `include/river5.h`. Runtime CPUID dispatch in
   `river5.c` picks v2 when AES-NI is available.
 - `src/lib.rs` + `Cargo.toml` — a Rust crate (`river5`) shaped like the
-  `blake3` crate so it drops into superdupe with a one-line `Cargo.toml` change.
+  `blake3` crate so it drops into superdeduper with a one-line `Cargo.toml` change.
 - `bench/` — a C benchmark harness comparing river5 against xxhash3-128,
   BLAKE3, MetroHash-128, and Meow Hash. Micro mode (in-cache throughput) and
   file mode (directory walk with optional `--threads N`).
@@ -219,7 +219,7 @@ still named it because that is where the credit belongs.
 - **[BLAKE3](https://github.com/BLAKE3-team/BLAKE3)** by Jack O'Connor,
   Jean-Philippe Aumasson, Samuel Neves, Zooko Wilcox-O'Hearn (Apache 2 or
   CC0). The Rust crate API shape (`Hasher::new() / update / finalize`) is
-  copied directly so river5 drops cleanly into the same call sites superdupe
+  copied directly so river5 drops cleanly into the same call sites superdeduper
   already has for BLAKE3. The multi-impl CMake-dispatch pattern (one
   portable .c, several SIMD .c files compiled with per-file flags, runtime
   CPUID selection) is BLAKE3's approach.
@@ -248,17 +248,17 @@ still named it because that is where the credit belongs.
   culture this project is trying to imitate.
 - The **`cc` crate** for Rust's build.rs (compiling C from Cargo).
 - The **`blake3` Rust crate**, whose public API shape is mirrored deliberately
-  so superdupe's `pipeline/hash.rs` integration is a near-trivial swap.
+  so superdeduper's `pipeline/hash.rs` integration is a near-trivial swap.
 
 If a contributor or upstream is missing from this list and should be on it,
 please open a PR — the omission is not intentional.
 
 ## Building and using
 
-### Rust crate (this is the integration path for superdupe)
+### Rust crate (this is the integration path for superdeduper)
 
 ```toml
-# In superdupe/Cargo.toml
+# In superdeduper/Cargo.toml
 river5 = { path = "../river5" }
 ```
 
@@ -351,7 +351,7 @@ scripts/run_smhasher3.sh                         # full SMHasher3 (needs cmake)
 
 ## Acknowledgements
 
-The whole reason this exists is the [superdupe](https://github.com/mickfixesjunk/superdeduper)
+The whole reason this exists is the [superdeduper](https://github.com/mickfixesjunk/superdeduper)
 file deduper project, which needed a fast 128-bit hash and where the original
 "can we beat xxhash3" question came from. The framing in this README — *engineering
 package, not algorithm; one workload, one CPU; humble about prior art* — exists

@@ -24,10 +24,10 @@
  *
  * Trade made: gives up the "1.7× Meow" headline win in exchange for
  * being a real SMHasher3-passing hash, which is what river5 needs to
- * be if we want anyone other than superdupe to use it.
+ * be if we want anyone other than superdeduper to use it.
  *
  * Output bytes are NOT compatible with v2. Different algorithm, so
- * the superdupe cache schema needs a bump (or new algo tag value).
+ * the superdeduper cache schema needs a bump (or new algo tag value).
  */
 #include "river5.h"
 #include "river5_internal.h"

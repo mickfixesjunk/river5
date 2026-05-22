@@ -1,6 +1,6 @@
-//! river5 — 128-bit content hash for the superdupe deduper.
+//! river5 — 128-bit content hash for the superdeduper deduper.
 //!
-//! API shaped to match the `blake3` crate so it slots into superdupe's
+//! API shaped to match the `blake3` crate so it slots into superdeduper's
 //! `ContentHasher` enum cleanly: `Hasher::new()`, `update(&[u8])`,
 //! `finalize(self) -> [u8; 16]`. `Send + Sync` so it works inside
 //! rayon parallel hashers.
