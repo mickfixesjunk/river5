@@ -131,10 +131,14 @@ impl Drop for Hasher {
 pub struct StackHasher {
     /// Inline ctx storage. `repr(C, align(16))` so the bytes are
     /// suitable for the C-side `river5_init_in` contract.
+    ///
+    /// NOTE: the ctx pointer is computed FRESH on every `update`/
+    /// `finalize` call from `&mut self.storage` — never stored. This
+    /// is what makes the struct safe to move after construction.
+    /// (Earlier revisions stored a `NonNull<river5_ctx>` here, which
+    /// captured an address inside `storage`; on struct move the
+    /// captured pointer was left dangling and `update` crashed.)
     storage: AlignedCtxStorage,
-    /// Set on `new()` to point into `storage` on AES-NI hosts. On stub
-    /// hosts, `init_in` returns NULL and we keep a heap-allocated
-    /// `Hasher` here instead — see `Backing`.
     backing: Backing,
 }
 
@@ -144,9 +148,13 @@ struct AlignedCtxStorage {
 }
 
 enum Backing {
-    /// Pointer into `self.storage` — no free on Drop.
-    InPlace(NonNull<river5_ctx>),
-    /// Stub fallback — heap-allocated, must be freed on Drop.
+    /// ctx lives inside `self.storage`; compute pointer from
+    /// `self.storage.bytes.as_mut_ptr()` on each call. No free
+    /// on Drop (storage owned by the struct).
+    InPlace,
+    /// Stub host fallback — heap-allocated ctx, must be freed
+    /// on Drop. Pointer is stable across moves because the heap
+    /// allocation doesn't move when the wrapper does.
     Fallback(NonNull<river5_ctx>),
 }
 
@@ -167,12 +175,19 @@ impl StackHasher {
             storage: AlignedCtxStorage {
                 bytes: [0u8; RIVER5_CTX_BYTES],
             },
-            // Placeholder; overwritten below.
-            backing: Backing::Fallback(NonNull::dangling()),
+            // Placeholder; overwritten below once we know the backend.
+            backing: Backing::InPlace,
         };
         // Safety: storage is repr(C, align(16)) — meets RIVER5_CTX_ALIGN
         // (16). Storage size is RIVER5_CTX_BYTES. `river5_init_in`
         // validates both and returns NULL on the stub variant.
+        //
+        // The returned pointer is INTENTIONALLY DISCARDED — we don't
+        // store it because the struct may be moved before the next
+        // call. Subsequent update/finalize compute a fresh pointer
+        // from `&mut self.storage`. The C-side init writes plain
+        // bytes (POD: __m128i lane[], counters, buf[]) so byte-level
+        // relocation is safe.
         let ctx = unsafe {
             river5_init_in(
                 sh.storage.bytes.as_mut_ptr() as *mut c_void,
@@ -180,33 +195,42 @@ impl StackHasher {
                 seed_ptr,
             )
         };
-        sh.backing = match NonNull::new(ctx) {
-            Some(p) => Backing::InPlace(p),
-            None => {
-                // Stub host — fall back to heap-allocated Hasher.
-                let heap_ctx = unsafe {
-                    if seed_ptr.is_null() {
-                        river5_new()
-                    } else {
-                        river5_new_seeded(seed_ptr)
-                    }
-                };
-                Backing::Fallback(
-                    NonNull::new(heap_ctx)
-                        .expect("river5_new fallback returned NULL"),
-                )
-            }
+        sh.backing = if ctx.is_null() {
+            // Stub host — fall back to heap-allocated Hasher.
+            let heap_ctx = unsafe {
+                if seed_ptr.is_null() {
+                    river5_new()
+                } else {
+                    river5_new_seeded(seed_ptr)
+                }
+            };
+            Backing::Fallback(
+                NonNull::new(heap_ctx)
+                    .expect("river5_new fallback returned NULL"),
+            )
+        } else {
+            // ctx == storage start; we don't capture the pointer
+            // because the struct can move.
+            Backing::InPlace
         };
         sh
     }
 
+    /// Compute the live ctx pointer from `&mut self`. For `InPlace`
+    /// this re-derives from `self.storage` every call (move-safe);
+    /// for `Fallback` this returns the stable heap pointer.
+    fn ctx_ptr(&mut self) -> *mut river5_ctx {
+        match &self.backing {
+            Backing::InPlace => self.storage.bytes.as_mut_ptr() as *mut river5_ctx,
+            Backing::Fallback(p) => p.as_ptr(),
+        }
+    }
+
     pub fn update(&mut self, data: &[u8]) -> &mut Self {
-        let ctx = match self.backing {
-            Backing::InPlace(p) | Backing::Fallback(p) => p,
-        };
+        let ctx = self.ctx_ptr();
         unsafe {
             river5_update(
-                ctx.as_ptr(),
+                ctx,
                 data.as_ptr() as *const c_void,
                 data.len(),
             );
@@ -215,12 +239,10 @@ impl StackHasher {
     }
 
     pub fn finalize(mut self) -> [u8; OUTPUT_BYTES] {
-        let ctx = match self.backing {
-            Backing::InPlace(p) | Backing::Fallback(p) => p,
-        };
+        let ctx = self.ctx_ptr();
         let mut out = [0u8; OUTPUT_BYTES];
         unsafe {
-            river5_finalize(ctx.as_ptr(), out.as_mut_ptr());
+            river5_finalize(ctx, out.as_mut_ptr());
         }
         let _ = &mut self;
         out
@@ -321,6 +343,63 @@ mod tests {
     fn seeded_differs_from_default() {
         let seed = [0x42u8; SEED_BYTES];
         assert_ne!(hash(b"foo"), hash_seeded(b"foo", &seed));
+    }
+
+    #[test]
+    fn stack_hasher_survives_move() {
+        // Regression test for the self-referential-struct bug:
+        // a StackHasher constructed inside one function MUST work
+        // correctly after being moved to the caller's stack frame.
+        // The original implementation stored a NonNull<river5_ctx>
+        // captured at construction time; that pointer was left
+        // dangling after the struct moved, and update() crashed
+        // with ACCESS_VIOLATION on Windows / segfault on Linux.
+        fn make() -> StackHasher {
+            StackHasher::new()
+        }
+        let mut h = make();
+        h.update(b"the quick brown fox");
+        h.update(b" jumps over the lazy dog");
+        let out = h.finalize();
+        assert_eq!(out, hash(b"the quick brown fox jumps over the lazy dog"));
+    }
+
+    #[test]
+    fn stack_hasher_survives_multi_move() {
+        // Twice-moved StackHasher. Even more pointer dangling
+        // opportunities.
+        fn outer() -> StackHasher {
+            inner()
+        }
+        fn inner() -> StackHasher {
+            let mut h = StackHasher::new();
+            h.update(b"first chunk");  // partial update before move
+            h
+        }
+        let mut h = outer();
+        h.update(b" + second chunk");
+        let out = h.finalize();
+        let expected = hash(b"first chunk + second chunk");
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn stack_hasher_in_vec_round_trip() {
+        // Storing StackHasher in a Vec forces moves on push/pop and
+        // potentially on reallocation. Verify everything still works.
+        let mut v: Vec<StackHasher> = Vec::new();
+        for _ in 0..16 {
+            v.push(StackHasher::new());
+        }
+        for h in v.iter_mut() {
+            h.update(b"round-tripped through Vec");
+        }
+        let outs: Vec<[u8; OUTPUT_BYTES]> =
+            v.into_iter().map(|h| h.finalize()).collect();
+        let expected = hash(b"round-tripped through Vec");
+        for o in &outs {
+            assert_eq!(*o, expected);
+        }
     }
 
     #[test]
