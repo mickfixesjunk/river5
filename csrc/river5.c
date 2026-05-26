@@ -13,7 +13,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#ifdef RIVER5_HAS_AESNI
 #  if defined(_MSC_VER)
 #    include <intrin.h>
 static int cpu_has_aesni(void)
@@ -33,8 +33,6 @@ static int cpu_has_aesni(void)
 #  else
 static int cpu_has_aesni(void) { return 0; }
 #  endif
-#else
-static int cpu_has_aesni(void) { return 0; }
 #endif
 
 static const river5_vtable *resolve_vtable(void)
@@ -57,7 +55,14 @@ static const river5_vtable *resolve_vtable(void)
      * a prior version. See docs/TAGS.md for the full inventory.
      *
      * Public callers (river5_hash(), Rust crate) always get v15. */
+#ifdef RIVER5_HAS_AESNI
     return cpu_has_aesni() ? &RIVER5_VTABLE_AESNI_V15 : &RIVER5_VTABLE_STUB;
+#else
+    /* Built for a target without AES-NI sources (e.g. aarch64). The
+     * AES-NI vtable symbols don't exist in this build; cpu_has_aesni()
+     * already returns 0 on these archs, so we'd pick the stub anyway. */
+    return &RIVER5_VTABLE_STUB;
+#endif
 }
 
 static const river5_vtable *vtable(void)
