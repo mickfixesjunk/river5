@@ -526,7 +526,7 @@ mod tests {
     #[test]
     fn streaming_random_chunking_matches_one_shot() {
         let data: Vec<u8> = (0..10_000u32)
-            .map(|i| ((i * 2654435761) >> 8) as u8)
+            .map(|i| ((i.wrapping_mul(2654435761)) >> 8) as u8)
             .collect();
         let one = hash(&data);
 
