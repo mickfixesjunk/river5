@@ -570,4 +570,88 @@ mod tests {
             hash_seeded(b"identical input", &s2),
         );
     }
+
+    // Golden vectors pin the exact bytes v15 produces for known inputs.
+    // The rest of the suite checks internal consistency (streamed ==
+    // one-shot, heap == stack, same input == same output across calls)
+    // but nothing catches an accidental algorithmic regression that
+    // remains internally consistent. These vectors do.
+    //
+    // Only asserts on river5-aesni-v15 — other impls (v6, stub, etc.)
+    // legitimately produce different bytes. Extend the match arm when
+    // a new impl becomes a release candidate.
+    #[test]
+    fn golden_vectors_v15() {
+        let name = impl_name();
+        if name != "river5-aesni-v15" {
+            eprintln!("skipping golden_vectors_v15: impl is {name}");
+            return;
+        }
+
+        let deterministic_1000: Vec<u8> =
+            (0..1000usize).map(|i| (i as u8).wrapping_mul(31)).collect();
+
+        let cases: &[(&str, &[u8], [u8; OUTPUT_BYTES])] = &[
+            ("empty", b"", [
+                0x30, 0x5f, 0xb4, 0xc4, 0xdc, 0x1b, 0xec, 0x25,
+                0x81, 0x44, 0x1d, 0xf6, 0xa3, 0xe0, 0x1b, 0x22,
+            ]),
+            ("a", b"a", [
+                0x88, 0x5a, 0xb5, 0x74, 0x7b, 0x9f, 0xf6, 0x1f,
+                0x72, 0xd6, 0x09, 0x6e, 0x61, 0x78, 0xe3, 0x8c,
+            ]),
+            ("abc", b"abc", [
+                0x02, 0x7b, 0x6c, 0xe2, 0x31, 0x0d, 0xb2, 0x1b,
+                0x65, 0x25, 0x0d, 0x6e, 0xe6, 0x14, 0x80, 0x81,
+            ]),
+            ("pangram", b"the quick brown fox jumps over the lazy dog", [
+                0x6f, 0x72, 0xe1, 0x9b, 0x76, 0x05, 0x46, 0xaf,
+                0x80, 0x52, 0xcb, 0x60, 0x9b, 0xbd, 0xd7, 0x0b,
+            ]),
+            ("0xA5 × 128 (exact block)", &[0xA5u8; 128], [
+                0x29, 0x7f, 0x71, 0x5c, 0x18, 0x19, 0x81, 0x3e,
+                0x73, 0x26, 0x7c, 0x32, 0xfc, 0x25, 0xee, 0x18,
+            ]),
+            ("0xA5 × 129 (block + 1 tail)", &[0xA5u8; 129], [
+                0x03, 0xc9, 0x01, 0x06, 0x6a, 0xda, 0x91, 0xd5,
+                0x6b, 0xb5, 0x69, 0xd8, 0x78, 0xb8, 0xc1, 0xa0,
+            ]),
+            ("1000B deterministic", &deterministic_1000, [
+                0xd5, 0x40, 0x45, 0x8c, 0xe1, 0x74, 0xcb, 0x42,
+                0x41, 0xec, 0x3b, 0xef, 0xe7, 0x8e, 0x46, 0x76,
+            ]),
+        ];
+
+        for (label, input, expected) in cases {
+            let got = hash(input);
+            assert_eq!(
+                got, *expected,
+                "v15 golden mismatch for {label} (len {}) — got {:02x?}",
+                input.len(),
+                got,
+            );
+        }
+    }
+
+    // Seeded-hash golden vector — separate so a finalize-seed-mix
+    // regression is caught even if the unseeded path stays stable.
+    #[test]
+    fn golden_vector_seeded_v15() {
+        let name = impl_name();
+        if name != "river5-aesni-v15" {
+            eprintln!("skipping golden_vector_seeded_v15: impl is {name}");
+            return;
+        }
+        let seed = [0x42u8; SEED_BYTES];
+        let got = hash_seeded(b"the quick brown fox jumps over the lazy dog", &seed);
+        let expected: [u8; OUTPUT_BYTES] = [
+            0xff, 0x87, 0x6b, 0x73, 0x82, 0x36, 0x58, 0x44,
+            0x1f, 0xae, 0x1d, 0xc7, 0xc6, 0xfd, 0xfa, 0x4b,
+        ];
+        assert_eq!(
+            got, expected,
+            "v15 seeded golden mismatch — got {:02x?}",
+            got,
+        );
+    }
 }
