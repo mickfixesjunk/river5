@@ -341,6 +341,16 @@ static void v15_update(river5_ctx_t *c, const void *data, size_t len)
     const uint8_t *p = (const uint8_t *)data;
     c->total_bytes += (uint64_t)len;
 
+    /* Fast path: when buf_len + len < BLOCK_V15 no process_block will
+     * run, so skip the 256-byte lane-in/lane-out memcpy below and just
+     * append the bytes to the tail buffer. This is the common case for
+     * streaming a sub-block file via update + finalize. */
+    if (c->buf_len + len < BLOCK_V15) {
+        memcpy(c->buf + c->buf_len, p, len);
+        c->buf_len += len;
+        return;
+    }
+
     __m128i lane[LANES_V15];
     memcpy(lane, c->lane, sizeof(lane));
 
