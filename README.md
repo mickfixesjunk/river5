@@ -36,46 +36,66 @@ xxhash3-128, BLAKE3, MetroHash-128, and Meow Hash.
 - `third_party/` — vendored copies of xxhash, BLAKE3, MetroHash, and Meow Hash
   (each with its own upstream LICENSE preserved).
 
-## Honest performance numbers
+## Performance
+
+**Bottom line first: on real file-dedup workloads, the hash choice does
+not determine wall-clock time, and river5 makes no "fastest hash"
+claim.** Cold-cache file reads are IO/syscall-bound. At that regime
+river5, BLAKE3, and Meow Hash are tied within measurement noise —
+real-corpus runs on a Ryzen 9950X3D (NTFS) measured river5 and BLAKE3
+within **<1%** of each other on the Tier-1 dedup workload, because the
+per-file `open()`/`read()` cost dominates and which 128-bit hash you
+pick sits below the noise floor. river5 is the superdeduper default
+because it is *competitive*, drops in cleanly (BLAKE3-shaped Rust API),
+and is tuned for this exact use case — not because it wins a throughput
+race.
+
+### In-cache CPU microbench (does NOT predict real-workload speed)
+
+The table below isolates raw hash *CPU* cost with the input already hot
+in cache. It deliberately excludes file IO — which is the actual
+bottleneck in real dedup — so read it as "how fast is the hash compute
+in isolation," **not** as a prediction of dedup wall-time. These numbers
+do not generalize across CPUs, and they do not survive the IO ceiling
+described above.
 
 Measured on a WSL2 dev machine (Intel i7-7700K, AES-NI + AVX2, no VAES,
 no AVX-512), single thread, in-cache micro bench, ~1s per cell:
 
-| size      | xxh3-128 | **river5 (v15)** | river5-v6 | river5-v3 | river5-v2 | MetroHash | Meow Hash |
-|-----------|---------:|-----------------:|----------:|----------:|----------:|----------:|----------:|
-| 4 KiB     | 21.0     | **41.4**         | 26.8      | 30.9      | 58.3      | 16.1      | 44.5      |
-| 16 KiB    | 23.2     | **55.5**         | 29.9      | 33.0      | 64.7      | 16.9      | 46.0      |
-| 64 KiB    | 22.8     | **45.7**         | 28.8      | 34.1      | 63.0      | 15.5      | 46.6      |
-| 256 KiB   | 22.8     | 40.0             | 29.2      | 33.1      | 52.1      | 13.5      | **48.8**  |
-| 1 MiB     | 22.9     | 30.8             | 27.0      | 29.9      | 36.8      | 13.1      | **50.6**  |
+| size      | xxh3-128 | river5 (v15) | river5-v6 | river5-v3 | river5-v2 | MetroHash | Meow Hash |
+|-----------|---------:|-------------:|----------:|----------:|----------:|----------:|----------:|
+| 4 KiB     | 21.0     | 41.4         | 26.8      | 30.9      | 58.3      | 16.1      | 44.5      |
+| 16 KiB    | 23.2     | 55.5         | 29.9      | 33.0      | 64.7      | 16.9      | 46.0      |
+| 64 KiB    | 22.8     | 45.7         | 28.8      | 34.1      | 63.0      | 15.5      | 46.6      |
+| 256 KiB   | 22.8     | 40.0         | 29.2      | 33.1      | 52.1      | 13.5      | 48.8      |
+| 1 MiB     | 22.9     | 30.8         | 27.0      | 29.9      | 36.8      | 13.1      | 50.6      |
 
 Numbers in GB/s, in-cache, single thread. `river5` = v15 (the production
 default). Reproduce locally with `make && ./build/river5-bench micro --seconds 1.0`.
 
-**Things to know about these numbers:**
-- **river5 v15 vs Meow**: v15 wins at the 4–64 KiB range where most
-  dedup hashing lives; Meow takes 256 KiB–1 MiB. v15 beats Meow's peak
-  46 GB/s by ~20% at 16 KiB.
-- **v15 vs BLAKE3**: v15 is 15–25× faster than BLAKE3 at every size on
-  this CPU (BLAKE3 here is configured without AVX-512 — see
-  "What's vendored"). Different category though — BLAKE3 is
+**Reading these numbers honestly:**
+- They are in-cache CPU-compute numbers on *one machine*, *one compiler*
+  (gcc 9.4), *one OS* (Linux/WSL2). On different x86_64 CPUs (notably
+  ones with two AES execution units, or with VAES) the ordering changes.
+  On non-x86 hardware river5 falls back to xxhash3 and offers nothing.
+- **The large BLAKE3 gap in this table is a CPU-microbench artifact, not
+  a real-workload result.** On actual file dedup (cold-cache,
+  multi-thread) river5 and BLAKE3 are tied within noise — see the
+  bottom-line note above. BLAKE3 is also a different category: it is
   cryptographic; v15 is not.
-- **v15 vs xxh3-128**: ~2× faster across most sizes. xxh3 has the
-  portability advantage (no AES-NI dependency).
-- These are *one machine*, *one compiler* (gcc 9.4), *one OS*
-  (Linux/WSL2). On different x86_64 CPUs (notably ones with two AES
-  execution units, or with VAES) the ordering can change. On non-x86
-  hardware river5 falls back to xxhash3 and offers nothing.
-- File-walk benchmarks at corpus sizes near ~1 GiB are noisy enough
-  that run-to-run variance dominates the variant differences. Micro
-  is the reliable signal.
+- Likewise the river5-vs-Meow and river5-vs-xxh3 orderings here are
+  in-cache CPU compute only. They say nothing about dedup wall-time,
+  where IO dominates and the hashes converge.
+- File-walk benchmarks near ~1 GiB are noisy enough that run-to-run
+  variance dominates variant differences. The micro bench is the only
+  reliable *CPU-compute* signal — and CPU compute is not the dedup
+  bottleneck.
 - Out-of-cache, all AES-NI hashes converge near DRAM read bandwidth
-  (~30-50 GB/s depending on the system). The hash CPU work stops
-  being the bottleneck.
-- **Real-world dedup**: on consumer NVMe (5–7 GB/s reads), wall-time
-  is disk-bound. v15's throughput advantage shows up as reduced
-  CPU% during dedup rather than faster wall time. It matters more
-  for in-memory dedup, PCIe 5 SSDs, and parallel multi-core hashing.
+  (~30-50 GB/s). The hash CPU work stops being the bottleneck.
+- **Real-world dedup:** wall-time is disk-bound (and on the parallel,
+  cold-cache workload superdeduper actually runs, syscall-bound). Any
+  in-cache CPU-throughput difference shows up — if at all — as marginally
+  reduced CPU% during dedup, not as faster wall time.
 
 **Other variants** (`river5-v6`, `river5-v3`, `river5-v2`) stay
 registered in the bench for A/B comparison and are pinnable via git
@@ -103,7 +123,7 @@ default. See [`docs/TAGS.md`](docs/TAGS.md) for the full inventory.
   cross-lane butterfly mixing for SMHasher3 quality; v6 added per-lane
   PSHUFB input scrambling on top of v3 for Avalanche/Permutation
   improvements; v15 drops v6's per-block butterfly (the SMHasher-
-  Permutation-passing tax) for ~2× the throughput while keeping the
+  Permutation-passing tax) for ~2× the in-cache CPU throughput while keeping the
   PSHUFB scramble that gives clean Avalanche. v15 is verified to
   produce zero full-128-bit collisions across ~150M short-text /
   cyclic / sparse test keys, while deliberately failing SMHasher3
@@ -178,7 +198,7 @@ a fully-uniform hash.
 | v12 | `v12-highwayhash` | — | HighwayHash-inspired ADD+MUL+AES three-primitive mix → catastrophic 10× (asymmetric MUL, no ZipperMerge port) | n/a |
 | v13 / v13c | `v13-content-shuffle`, `v13c-hybrid-shuffle` | — | content-dependent shuffles; 152× spike on cyclic killer; hybrid matched v6 | n/a |
 | v14 ⚠️ | `v14-two-stream` | `v14` | two-stream `v6 ⊕ v11`; PASSED 5 narrow categories BUT **fails Dict with 1515 actual 128-bit collisions on dictionary words — DO NOT USE** | n/a |
-| **v15 (CURRENT MAIN)** | `v15-fast-dedup` | `v15` | **v6 minus per-block butterfly — 55.5 GB/s @ 16 KiB, ~2× v6, beats Meow at mid sizes, zero 128-bit collisions on ~150M test keys** | **new baseline** |
+| **v15 (CURRENT MAIN)** | `v15-fast-dedup` | `v15` | **v6 minus per-block butterfly — ~2× v6 in-cache CPU throughput, zero 128-bit collisions on ~150M test keys** (in-cache microbench only; no real-workload speed claim — see [Performance](#performance)) | **new baseline** |
 
 **Twelve different structural attempts to clear SMHasher3 Permutation
 on v6's design family. NONE actually clear it without breaking
@@ -325,12 +345,14 @@ scripts/run_smhasher3.sh                         # full SMHasher3 (needs cmake)
   regardless), but if your workload is hashing many small keys, use xxhash3.
 - **One machine, one compiler.** Numbers above are from one WSL2 host with
   GCC. Different CPU + compiler combinations will reorder results. The
-  algorithm itself is portable; only the *advantage over Meow* is the
-  microarchitecture-specific claim.
+  algorithm itself is portable; only the *in-cache CPU ordering vs Meow*
+  is microarchitecture-specific — and even that does not carry into real
+  (IO-bound) dedup wall-time. See [Performance](#performance).
 - **No VAES / AVX-512 path yet.** The 8-ZMM-lane / 8-YMM-lane VAES paths
-  that would extract another 1.5-2× on Ice Lake+ / Zen 4+ hardware are
-  designed but not written. The current AES-NI XMM path is the universal
-  baseline.
+  that would extract another ~1.5-2× of *in-cache CPU throughput* on
+  Ice Lake+ / Zen 4+ hardware are designed but not written. (As above,
+  in-cache CPU throughput is not the dedup bottleneck.) The current
+  AES-NI XMM path is the universal baseline.
 - **SMHasher3 not yet run.** The fetch+register+run script is ready and
   should produce a verification value on first run; treat any production
   use as gated on SMHasher3 passing first.
