@@ -78,11 +78,18 @@ default). Reproduce locally with `make && ./build/river5-bench micro --seconds 1
   (gcc 9.4), *one OS* (Linux/WSL2). On different x86_64 CPUs (notably
   ones with two AES execution units, or with VAES) the ordering changes.
   On non-x86 hardware river5 falls back to xxhash3 and offers nothing.
-- **The large BLAKE3 gap in this table is a CPU-microbench artifact, not
-  a real-workload result.** On actual file dedup (cold-cache,
-  multi-thread) river5 and BLAKE3 are tied within noise — see the
-  bottom-line note above. BLAKE3 is also a different category: it is
-  cryptographic; v15 is not.
+- **river5's per-stream CPU-compute lead over BLAKE3 is real but does
+  not translate to dedup speed.** In hash-compute isolation (single
+  thread, input already in RAM) river5 is ~5× BLAKE3 per stream
+  (≈45 GB/s vs ≈9.2 GB/s on a Ryzen 9950X3D). But end-to-end on a real
+  corpus the two are **tied within <1%** (file dedup is IO/syscall-
+  bound — the SSD read ceiling is ~0.16% of river5's hash-compute
+  peak), and under 32-thread contention river5's per-stream lead
+  collapses: it saturates DDR5 bandwidth and scales ~6.4× worse than
+  BLAKE3, so aggregate throughput is roughly equal. river5 is
+  meaningfully faster only in the narrow "few large files + idle
+  cores" case. BLAKE3 is also a different category: it is cryptographic;
+  v15 is not.
 - Likewise the river5-vs-Meow and river5-vs-xxh3 orderings here are
   in-cache CPU compute only. They say nothing about dedup wall-time,
   where IO dominates and the hashes converge.
