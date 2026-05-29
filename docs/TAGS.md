@@ -24,9 +24,12 @@ For C/CMake consumers: `git checkout v15` then build normally.
 
 ### `v15` — current default ✅
 
-Speed (i7-7700K, in-cache, 16 KiB): **~50-55 GB/s**
+Speed (i7-7700K, in-cache, 16 KiB): **~50-55 GB/s** — in-cache CPU
+microbench only; on real (IO-bound) dedup, river5 is competitive/tied
+with BLAKE3 and hash choice is below the noise floor. No fastest/
+superiority claim — see the README Performance section.
 
-- ~2× v6, beats Meow at mid sizes, 2-2.4× xxh3-128, 15-20× BLAKE3
+- ~2× v6 in-cache CPU throughput (internal A/B; not a real-workload claim)
 - Avalanche passes cleanly (max bias 0.94%, score ≤4)
 - Verified zero full-128-bit collisions across ~150M test keys
   (Dict, TextNum, Text patterns, Cyclic, Sparse keysets at 128-bit)
@@ -68,11 +71,13 @@ promotion. Otherwise no good reason.
 
 ## Available but not generally recommended
 
-### `v2` — fastest variant, Avalanche-weak (no git tag, bench-only)
+### `v2` — fastest river5 variant in-cache, Avalanche-weak (no git tag, bench-only)
 
-Speed (i7-7700K, in-cache, 16 KiB): **~65 GB/s** (fastest)
+Speed (i7-7700K, in-cache, 16 KiB): **~65 GB/s** (fastest *river5 variant*
+in the in-cache microbench — not a real-workload or cross-hash claim;
+see the README Performance section: dedup is IO-bound).
 
-- Faster than everything including v15 (by ~14%)
+- Fastest river5 variant in-cache — ~14% over v15 (in-cache microbench only)
 - **Avalanche FAILS** (1.83% bias, score 59σ in SMHasher3)
 - Verified zero full-128-bit collisions across ~150M test keys
   (same keysets as v15)
@@ -82,9 +87,10 @@ call `RIVER5_VTABLE_AESNI_V2` directly through `river5_internal.h`
 (C) or via the `river5-v2` bench entry. There's no `river5 = { tag = "v2" }`
 pin path because the public `river5_hash()` API has never routed to v2.
 
-**Use v2 if**: you specifically need the absolute fastest variant for
-in-memory dedup of already-decompressed data on a fast CPU, and you
-don't care that someone running SMHasher will see the Avalanche fail.
+**Use v2 if**: you specifically need the fastest river5 variant for the
+narrow in-memory / already-decompressed-data + idle-cores case (where
+hash CPU cost actually shows), and you don't care that someone running
+SMHasher will see the Avalanche fail.
 For 99% of dedup workloads, v15 is fast enough and looks cleaner.
 
 ### `v9` — abandoned partial experiment
